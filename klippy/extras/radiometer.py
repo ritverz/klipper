@@ -8,6 +8,8 @@
 
 import logging
 import serial
+
+from typing import Literal
 from functools import reduce
 
 try:
@@ -19,7 +21,7 @@ except ImportError:
 REPORT_TIME = 2.0
 
 START_BYTE = b'\x53'
-ENDIAN = 'little'
+ENDIAN: Literal['little', 'big'] = 'little'
 
 READ_DATA_COMMAND = b'\x53\x01\x01\x55'
 CHANGE_GAIN_COMMAND = b'\x07'
@@ -54,7 +56,7 @@ def get_data_from_queue(queue):
     return data
 
 
-def calc_crc(data):
+def calc_crc(data: bytes):
     overflow_sum = reduce(lambda a, b: a + b, data).to_bytes(4, ENDIAN)
     return overflow_sum[:1]
 
@@ -122,6 +124,7 @@ class Radiometer:
     def _open_serial(self):
         with self.write_queue.mutex:
             self.write_queue.queue.clear()
+
         with self.read_queue.mutex:
             self.read_queue.queue.clear()
 
@@ -190,7 +193,15 @@ class Radiometer:
                 'Ошибка контрольной суммы при считывании данных радиометра.'
             )
 
-    def _sample_radiometer(self, eventtime):
+    def _sample_radiometer(self, eventtime: int):
+        """_summary_
+
+        Args:
+            eventtime (int): _description_
+
+        Returns:
+            _type_: _description_
+        """
         if self.start:
             self.write_queue.put(self._set_gain())
             self.start = False
@@ -246,7 +257,8 @@ class Radiometer:
                 # Считали стартовый байт и байт длины поля данных.
                 if len(self.read_buffer) == 2:
                     if self.read_buffer[:1] == START_BYTE:
-                        # Добавили стартовый байт, байт длины и контрольную сумму.
+                        # Добавили стартовый байт, байт длины и
+                        # контрольную сумму.
                         self.response_length = self.read_buffer[1] + 3
                     else:
                         pass  # TODO:
