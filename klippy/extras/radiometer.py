@@ -91,7 +91,7 @@ class Radiometer:
         self.response_length = None
         self.start = True
 
-        # Getting parameters from the config file.
+        # Получение параметров из файла конфигурации
         self.k_koeff = config.getfloat('k_koeff', default=K_KOEFF)
         self.serial_port = config.get('serial_port', default=SERIAL_PORT)
         self.mac_address = config.get('mac_address', default=MAC_ADDRESS)
@@ -250,7 +250,8 @@ class Radiometer:
 
         mcu = self.printer.lookup_object('mcu')
         measured_time = self.reactor.monotonic()
-        self._callback(mcu.estimated_print_time(measured_time), self.sig)
+        if self.sig:
+            self._callback(mcu.estimated_print_time(measured_time), self.sig)
 
         return measured_time + REPORT_TIME
 
