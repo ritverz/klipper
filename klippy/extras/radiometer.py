@@ -4,9 +4,13 @@
 # ichiro@BBC-Micro:~$ sudo rfcomm bind 0  00:06:66:79:b6:f8 1
 # температура 22 гр.
 # сигнал 32000
-# http://127.0.0.1:7125/printer/objects/query?temperature_sensor%20rd=temperature
+# https://gist.github.com/RamonGilabert/
+# sudo visudo
+# ichiro ALL = NOPASSWD: /usr/bin/rfcomm
+
 
 import logging
+import subprocess
 import serial
 
 from typing import Literal
@@ -34,6 +38,8 @@ GAIN_RESPOND_LENGTH = 4
 
 K_KOEFF = 1
 GAIN = 1
+MAC_ADDRESS = '00:BA:55:57:17:B7'
+PIN_CODE = '1234'
 SERIAL_PORT = '/dev/serial/by-path/pci-0000:00:1d.0-usb-0:1.2:1.0-port0'
 SERIAL_BAUD = 115200
 SERIAL_TIMER = 0.1
@@ -88,6 +94,9 @@ class Radiometer:
         # Getting parameters from the config file.
         self.k_koeff = config.getfloat('k_koeff', default=K_KOEFF)
         self.serial_port = config.get('serial_port', default=SERIAL_PORT)
+        self.mac_address = config.get('mac_address', default=MAC_ADDRESS)
+        self.pin_code = config.get('pin_code', default=PIN_CODE)
+        
 
         self.serial_baud = config.getchoice(
             'serial_baud', choices=SERIAL_BAUD_CHOICE, default=SERIAL_BAUD
@@ -120,6 +129,29 @@ class Radiometer:
 
     def get_report_time_delta(self):
         return REPORT_TIME
+    
+    def _radiometer_connect(self):
+        mac = self.mac_address
+        pin = self.pin_code
+
+        commands = [
+            f'~/klipper/klippy/extras/radiometer_connect.sh {mac} {pin}', 
+            f'sudo rfcomm release 0 {mac} 1', 
+            f'sudo rfcomm bind 0 {mac} 1'
+        ]
+
+        for command in commands:
+            process = subprocess.run(
+                command, 
+                shell=True, 
+                text=True, 
+                check=True,
+                capture_output=True,
+                universal_newlines=True
+            )
+
+            if process.returncode == 0:
+                logging.info(process.stdout.strip())
 
     def _open_serial(self):
         with self.write_queue.mutex:
@@ -127,6 +159,8 @@ class Radiometer:
 
         with self.read_queue.mutex:
             self.read_queue.queue.clear()
+
+        self._radiometer_connect()
 
         self.serial = serial.Serial(
             self.serial_port, self.serial_baud, timeout=0, write_timeout=0
@@ -194,14 +228,7 @@ class Radiometer:
             )
 
     def _sample_radiometer(self, eventtime: int):
-        """_summary_
-
-        Args:
-            eventtime (int): _description_
-
-        Returns:
-            _type_: _description_
-        """
+     
         if self.start:
             self.write_queue.put(self._set_gain())
             self.start = False
