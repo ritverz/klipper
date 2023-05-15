@@ -6,14 +6,13 @@
 # сигнал 32000
 # https://gist.github.com/RamonGilabert/
 # sudo visudo
-# ichiro ALL = NOPASSWD: /usr/bin/rfcomm
+# user ALL = NOPASSWD: /usr/bin/rfcomm
 
 
 import logging
 import subprocess
 import serial
 
-from typing import Literal
 from functools import reduce
 
 try:
@@ -25,7 +24,7 @@ except ImportError:
 REPORT_TIME = 2.0
 
 START_BYTE = b'\x53'
-ENDIAN: Literal['little', 'big'] = 'little'
+ENDIAN = 'little'
 
 READ_DATA_COMMAND = b'\x53\x01\x01\x55'
 CHANGE_GAIN_COMMAND = b'\x07'
@@ -91,7 +90,7 @@ class Radiometer:
         self.response_length = None
         self.start = True
 
-        # Получение параметров из файла конфигурации
+        # Получение параметров из файла конфигурации.
         self.k_koeff = config.getfloat('k_koeff', default=K_KOEFF)
         self.serial_port = config.get('serial_port', default=SERIAL_PORT)
         self.mac_address = config.get('mac_address', default=MAC_ADDRESS)
@@ -212,19 +211,24 @@ class Radiometer:
 
                 if respond == CHANGE_GAIN_OK:
                     self.gcode.respond_info(
-                        f'Установлено значение усиления {self.gain}.'
+                        f'Установлено значение усиления {self.gain}'
                     )
                 elif respond == CHANGE_GAIN_ERROR:
-                    self.gcode.respond_info(
-                        f'Радиометр не смог установить значение усиления.'
+                    self.gcode.respond_error(
+                        'Радиометр не смог установить значение усиления'
                     )
                 else:
-                    pass
+                    logging.error(
+                        'Ошибка при установлении усиления, радиометр не '
+                        'прислал ответ или ответ не распознан'
+                    )
             else:
-                pass
+                logging.error(
+                        'Радиометр прислал ответ неправильной длины'
+                    )
         else:
-            logging.warning(
-                'Ошибка контрольной суммы при считывании данных радиометра.'
+            logging.error(
+                'Ошибка контрольной суммы при считывании данных радиометра'
             )
 
     def _sample_radiometer(self, eventtime: int):
@@ -238,7 +242,6 @@ class Radiometer:
         data = get_data_from_queue(self.read_queue)
 
         if data:
-            
             self._decode_data(data)
             # self.gcode.respond_info(
             #     f'Temp: {self.temp} '
@@ -246,7 +249,7 @@ class Radiometer:
             #     f'Gain: {self.gain}'
             # )
         else:
-            logging.warning('Радиометр прислал пустой ответ.')
+            logging.warning('Радиометр прислал пустой ответ')
 
         mcu = self.printer.lookup_object('mcu')
         measured_time = self.reactor.monotonic()
@@ -289,7 +292,10 @@ class Radiometer:
                         # контрольную сумму.
                         self.response_length = self.read_buffer[1] + 3
                     else:
-                        pass  # TODO:
+                        logging.error(
+                            'Ошибка в ответе радиометра, отсутствует стартовый '
+                            'байт'
+                        )
 
                 if len(self.read_buffer) == self.response_length:
                     self.read_queue.put(self.read_buffer)
@@ -310,6 +316,6 @@ class Radiometer:
 
 
 def load_config(config):
-    # Register sensor.
+    # Регистрируем радиометр в качестве датчика.
     pheaters = config.get_printer().load_object(config, 'heaters')
     pheaters.add_sensor_factory('radiometer', Radiometer)
