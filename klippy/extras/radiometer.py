@@ -57,8 +57,8 @@ def get_data_from_queue(queue):
     while not queue.empty():
         try:
             data = queue.get_nowait()
-        except Empty:
-            pass
+        except Empty as em:
+            logging.info(f'В очереди нет данных ({em.args})')
     return data
 
 
