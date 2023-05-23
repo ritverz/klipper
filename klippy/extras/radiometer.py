@@ -7,10 +7,13 @@
 # https://gist.github.com/RamonGilabert/
 # sudo visudo
 # user ALL = NOPASSWD: /usr/bin/rfcomm
+# klippy-env/bin/pip install pexpect
 
 
 import logging
-import subprocess
+import re
+import time
+import pexpect
 import serial
 
 from functools import reduce
@@ -35,10 +38,14 @@ CHANGE_GAIN_ERROR = b'\xFF'
 DATA_RESPOND_LENGTH = 8
 GAIN_RESPOND_LENGTH = 4
 
-K_KOEFF = 1
+K_KOEFF = 1.0
 GAIN = 1
-MAC_ADDRESS = '00:BA:55:57:17:B7'
-PIN_CODE = '1234'
+
+RD_MAC_ADDRESS = '00:BA:55:57:17:B7'
+RD_PIN_CODE = '1234'
+RD_NAME = 'RADIOMETER'
+PROMPT = '#'
+
 SERIAL_PORT = '/dev/serial/by-path/pci-0000:00:1d.0-usb-0:1.2:1.0-port0'
 SERIAL_BAUD = 115200
 SERIAL_TIMER = 0.1
@@ -93,8 +100,9 @@ class Radiometer:
         # Получение параметров из файла конфигурации.
         self.k_koeff = config.getfloat('k_koeff', default=K_KOEFF)
         self.serial_port = config.get('serial_port', default=SERIAL_PORT)
-        self.mac_address = config.get('mac_address', default=MAC_ADDRESS)
-        self.pin_code = config.get('pin_code', default=PIN_CODE)
+        self.rd_mac_address = config.get('mac_address', default=RD_MAC_ADDRESS)
+        self.rd_pin_code = config.get('pin_code', default=RD_PIN_CODE)
+        self.rd_name = config.get('name', default=RD_NAME)
         
 
         self.serial_baud = config.getchoice(
@@ -128,29 +136,67 @@ class Radiometer:
 
     def get_report_time_delta(self):
         return REPORT_TIME
+
+    def _clear_log(self, text):
+        ansi_escape = re.compile(r'''
+            \x1B        # ESC
+                (?:     # 7-bit C1 Fe (except CSI)
+                [@-Z\\-_]
+            |           # or [ for CSI, followed by a control sequence
+            \[
+                [0-?]*  # Parameter bytes
+                [ -/]*  # Intermediate bytes
+                [@-~]   # Final byte
+            )
+        ''', re.VERBOSE)
+
+        return ansi_escape.sub('', text).replace('\x01', '').replace('\x02', '')
     
     def _radiometer_connect(self):
-        mac = self.mac_address
-        pin = self.pin_code
+        # bl = Bluetoothctl(self.reactor)
+        # bl.start_scan()
 
-        commands = [
-            f'~/klipper/klippy/extras/radiometer_connect.sh {mac} {pin}', 
-            f'sudo rfcomm release 0 {mac} 1', 
-            f'sudo rfcomm bind 0 {mac} 1'
-        ]
+        # rd = {'mac_address': self.rd_mac_address, 'name': self.rd_name} 
+        # if rd in bl.get_discoverable_devices():
+        #     bl.remove(self.rd_mac_address)
+        # # bl.trust(self.rd_mac_address)
+        # bl.pair(self.rd_mac_address, self.rd_pin_code)
 
-        for command in commands:
-            process = subprocess.run(
-                command, 
-                shell=True, 
-                text=True, 
-                check=True,
-                capture_output=True,
-                universal_newlines=True
-            )
+        pexpect.run('rfkill unblock all')
 
-            if process.returncode == 0:
-                logging.info(process.stdout.strip())
+        p = pexpect.spawnu('bluetoothctl')
+        p.expect(PROMPT)
+
+        p.sendline('scan on')
+        time.sleep(10)
+        logging.warning(self._clear_log(p.before))
+        p.expect(PROMPT)
+
+        p.sendline(f'remove {self.rd_mac_address}')
+        time.sleep(5)
+        logging.warning(self._clear_log(p.before))
+        p.expect(PROMPT)
+
+        p.sendline(f'trust {self.rd_mac_address}')
+        time.sleep(5)
+        logging.warning(self._clear_log(p.before))
+        p.expect(PROMPT)
+
+        p.sendline(f'pair {self.rd_mac_address}')
+        time.sleep(5)
+        logging.warning(self._clear_log(p.before))
+        p.expect('Enter PIN code:')
+        logging.warning(self._clear_log(p.before))
+        p.sendline(self.rd_pin_code)
+        logging.warning(self._clear_log(p.before))
+        time.sleep(3)
+    
+        p.sendline('quit')
+        p.expect(pexpect.EOF)
+
+        pexpect.run(f'sudo rfcomm release 0 {self.rd_mac_address} 1')
+        pexpect.run(f'sudo rfcomm bind 0 {self.rd_mac_address} 1')
+        pexpect.run('sudo chmod 777 /dev/rfcomm0')
 
     def _open_serial(self):
         with self.write_queue.mutex:
@@ -202,7 +248,11 @@ class Radiometer:
         if crc == calc_crc(data_body):
 
             if data_len == DATA_RESPOND_LENGTH:
-                self.temp = self.k_koeff * (data[4] | data[5] << 8)
+                # self.temp = self.k_koeff * (data[4] | data[5] << 8)
+                
+                temp = int.from_bytes(data[4:6], byteorder=ENDIAN, signed=True)
+                self.temp = float(self.k_koeff * temp)
+
                 self.sig = self._f_temp() * (data[2] | data[3] << 8)
                 self.gain = data[6]
 
@@ -310,7 +360,7 @@ class Radiometer:
     def get_status(self, eventtime):
         return {
             'sig': self.sig,
-            'temp': self.temp,
+            'temp': round(self.temp, 1),
             'gain': self.gain
         }
 
