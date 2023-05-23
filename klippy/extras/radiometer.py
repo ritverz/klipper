@@ -147,41 +147,47 @@ class Radiometer:
         return ansi_escape.sub('', text).replace('\x01', '').replace('\x02', '')
     
     def _radiometer_connect(self):
-        pexpect.run('rfkill unblock all')
+        try:
+            pexpect.run('rfkill unblock all')
 
-        p = pexpect.spawnu('bluetoothctl')
-        p.expect(PROMPT)
+            p = pexpect.spawnu('bluetoothctl')
+            p.expect(PROMPT)
 
-        p.sendline('scan on')
-        time.sleep(10)
-        logging.warning(self._clear_log(p.before))
-        p.expect(PROMPT)
+            p.sendline('scan on')
+            time.sleep(10)
+            logging.warning(self._clear_log(p.before))
+            p.expect(PROMPT)
 
-        p.sendline(f'remove {self.rd_mac_address}')
-        time.sleep(5)
-        logging.warning(self._clear_log(p.before))
-        p.expect(PROMPT)
+            p.sendline(f'remove {self.rd_mac_address}')
+            time.sleep(5)
+            logging.warning(self._clear_log(p.before))
+            p.expect(PROMPT)
 
-        p.sendline(f'trust {self.rd_mac_address}')
-        time.sleep(5)
-        logging.warning(self._clear_log(p.before))
-        p.expect(PROMPT)
+            p.sendline(f'trust {self.rd_mac_address}')
+            time.sleep(5)
+            logging.warning(self._clear_log(p.before))
+            p.expect(PROMPT)
 
-        p.sendline(f'pair {self.rd_mac_address}')
-        time.sleep(5)
-        logging.warning(self._clear_log(p.before))
-        p.expect('Enter PIN code:')
-        logging.warning(self._clear_log(p.before))
-        p.sendline(self.rd_pin_code)
-        logging.warning(self._clear_log(p.before))
-        time.sleep(3)
-    
-        p.sendline('quit')
-        p.expect(pexpect.EOF)
+            p.sendline(f'pair {self.rd_mac_address}')
+            time.sleep(5)
+            logging.warning(self._clear_log(p.before))
+            p.expect('Enter PIN code:')
+            logging.warning(self._clear_log(p.before))
+            p.sendline(self.rd_pin_code)
+            logging.warning(self._clear_log(p.before))
+            time.sleep(3)
+        
+            p.sendline('quit')
+            p.expect(pexpect.EOF)
 
-        pexpect.run(f'sudo rfcomm release 0 {self.rd_mac_address} 1')
-        pexpect.run(f'sudo rfcomm bind 0 {self.rd_mac_address} 1')
-        pexpect.run('sudo chmod 777 /dev/rfcomm0')
+            pexpect.run(f'sudo rfcomm release 0 {self.rd_mac_address} 1')
+            pexpect.run(f'sudo rfcomm bind 0 {self.rd_mac_address} 1')
+            pexpect.run('sudo chmod 777 /dev/rfcomm0')
+        except Exception as ex:
+            self.printer.invoke_shutdown(
+                f'Критическая ошибка при попытке подключения к радиометру '
+                f'{ex.args}'
+            )
 
     def _open_serial(self):
         with self.write_queue.mutex:
@@ -278,13 +284,8 @@ class Radiometer:
 
         if data:
             self._decode_data(data)
-            # self.gcode.respond_info(
-            #     f'Temp: {self.temp} '
-            #     f'Signal: {self.sig} '
-            #     f'Gain: {self.gain}'
-            # )
         else:
-            logging.warning('Радиометр прислал пустой ответ')
+            logging.warning('Нет ответа от радиометра')
 
         mcu = self.printer.lookup_object('mcu')
         measured_time = self.reactor.monotonic()
