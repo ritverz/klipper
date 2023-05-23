@@ -1,12 +1,6 @@
-# Что делаем, если отвалился радиометр
-
-# sudo rfcomm release 0  00:06:66:79:b6:f8 1
-# ichiro@BBC-Micro:~$ sudo rfcomm bind 0  00:06:66:79:b6:f8 1
-# температура 22 гр.
-# сигнал 32000
-# https://gist.github.com/RamonGilabert/
 # sudo visudo
-# user ALL = NOPASSWD: /usr/bin/rfcomm
+# username ALL = NOPASSWD: /usr/bin/rfcomm
+# username ALL = NOPASSWD: /usr/bin/chmod
 # klippy-env/bin/pip install pexpect
 
 
@@ -153,15 +147,6 @@ class Radiometer:
         return ansi_escape.sub('', text).replace('\x01', '').replace('\x02', '')
     
     def _radiometer_connect(self):
-        # bl = Bluetoothctl(self.reactor)
-        # bl.start_scan()
-
-        # rd = {'mac_address': self.rd_mac_address, 'name': self.rd_name} 
-        # if rd in bl.get_discoverable_devices():
-        #     bl.remove(self.rd_mac_address)
-        # # bl.trust(self.rd_mac_address)
-        # bl.pair(self.rd_mac_address, self.rd_pin_code)
-
         pexpect.run('rfkill unblock all')
 
         p = pexpect.spawnu('bluetoothctl')
