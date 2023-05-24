@@ -31,6 +31,8 @@ CHANGE_GAIN_ERROR = b'\xFF'
 
 DATA_RESPOND_LENGTH = 8
 GAIN_RESPOND_LENGTH = 4
+PACKET_HEADER_LENGTH = 2
+PACKET_HEADER_CRC_LENGTH = 3
 
 K_KOEFF = 1.0
 GAIN = 1
@@ -42,7 +44,7 @@ PROMPT = '#'
 
 SERIAL_PORT = '/dev/serial/by-path/pci-0000:00:1d.0-usb-0:1.2:1.0-port0'
 SERIAL_BAUD = 115200
-SERIAL_TIMER = 0.1
+SERIAL_TIME = 0.1
 
 GAIN_CHOICE = {x: x for x in (1, 2, 4, 8)}
 
@@ -64,7 +66,7 @@ def get_data_from_queue(queue):
 
 def calc_crc(data: bytes):
     overflow_sum = reduce(lambda a, b: a + b, data).to_bytes(4, ENDIAN)
-    return overflow_sum[:1]
+    return overflow_sum[:1]  # Именно так, иначе будет возвращен int.
 
 
 class Radiometer:
@@ -117,10 +119,6 @@ class Radiometer:
             self._handle_connect
         )
 
-    # def handle_connect(self):
-    #     self.reactor.update_timer(self.read_timer, self.reactor.NOW)
-    #     self.reactor.update_timer(self.write_timer, self.reactor.NOW)
-
     def setup_minmax(self, min_temp, max_temp):
         self.min_temp = min_temp
         self.max_temp = max_temp
@@ -143,14 +141,13 @@ class Radiometer:
                 [@-~]   # Final byte
             )
         ''', re.VERBOSE)
-
         return ansi_escape.sub('', text).replace('\x01', '').replace('\x02', '')
     
     def _radiometer_connect(self):
         try:
             pexpect.run('rfkill unblock all')
 
-            p = pexpect.spawnu('bluetoothctl')
+            p = pexpect.spawn('bluetoothctl', encoding='utf-8')
             p.expect(PROMPT)
 
             p.sendline('scan on')
@@ -163,19 +160,25 @@ class Radiometer:
             logging.warning(self._clear_log(p.before))
             p.expect(PROMPT)
 
-            p.sendline(f'trust {self.rd_mac_address}')
-            time.sleep(5)
-            logging.warning(self._clear_log(p.before))
-            p.expect(PROMPT)
-
-            p.sendline(f'pair {self.rd_mac_address}')
-            time.sleep(5)
-            logging.warning(self._clear_log(p.before))
-            p.expect('Enter PIN code:')
-            logging.warning(self._clear_log(p.before))
-            p.sendline(self.rd_pin_code)
-            logging.warning(self._clear_log(p.before))
-            time.sleep(3)
+            # p.sendline(f'trust {self.rd_mac_address}')
+            # time.sleep(5)
+            # logging.warning(self._clear_log(p.before))
+            # p.expect(PROMPT)
+            
+            while True:
+                try:
+                    p.sendline(f'pair {self.rd_mac_address}')
+                    time.sleep(5)
+                    logging.warning(self._clear_log(p.before))
+                    p.expect('Enter PIN code:')
+                    logging.warning(self._clear_log(p.before))
+                    p.sendline(self.rd_pin_code)
+                    logging.warning(self._clear_log(p.before))
+                    time.sleep(3)
+                except Exception as ex:
+                    continue
+                else:
+                    break
         
             p.sendline('quit')
             p.expect(pexpect.EOF)
@@ -239,12 +242,12 @@ class Radiometer:
         if crc == calc_crc(data_body):
 
             if data_len == DATA_RESPOND_LENGTH:
-                # self.temp = self.k_koeff * (data[4] | data[5] << 8)
-                
                 temp = int.from_bytes(data[4:6], byteorder=ENDIAN, signed=True)
                 self.temp = float(self.k_koeff * temp)
 
-                self.sig = self._f_temp() * (data[2] | data[3] << 8)
+                sig = int.from_bytes(data[2:4], byteorder=ENDIAN, signed=False)
+                self.sig = float(self._f_temp() * sig)
+                
                 self.gain = data[6]
 
             elif data_len == GAIN_RESPOND_LENGTH:
@@ -297,36 +300,22 @@ class Radiometer:
     def _write_serial(self, eventtime):
         data = get_data_from_queue(self.write_queue)
         self.serial.write(data)
-        return eventtime + SERIAL_TIMER
+        return eventtime + SERIAL_TIME
 
     def _read_serial(self, eventtime):
-        # try:
-        #    self.file_handle.seek(0)
-        #    self.temp = float(self.file_handle.read())/1000.0
-        # except Exception:
-        #    logging.exception("temperature_host: Error reading data")
-        #    self.temp = 0.0
-        # return self.reactor.NEVER
-
-        # if self.temp < self.min_temp:
-        #    self.printer.invoke_shutdown(
-        #        "HOST temperature %0.1f below minimum temperature of %0.1f."
-        #        % (self.temp, self.min_temp,))
-        # if self.temp > self.max_temp:
-        #    self.printer.invoke_shutdown(
-        #        "HOST temperature %0.1f above maximum temperature of %0.1f."
-        #        % (self.temp, self.max_temp,))
-
         while True:
             self.read_buffer += self.serial.read()
 
             if len(self.read_buffer):
                 # Считали стартовый байт и байт длины поля данных.
-                if len(self.read_buffer) == 2:
+                if len(self.read_buffer) == PACKET_HEADER_LENGTH:
                     if self.read_buffer[:1] == START_BYTE:
                         # Добавили стартовый байт, байт длины и
                         # контрольную сумму.
-                        self.response_length = self.read_buffer[1] + 3
+                        data_length = self.read_buffer[1]
+                        self.response_length = (
+                            data_length + PACKET_HEADER_CRC_LENGTH
+                        )
                     else:
                         logging.error(
                             'Ошибка в ответе радиометра, отсутствует стартовый '
@@ -341,7 +330,7 @@ class Radiometer:
             else:
                 break
 
-        return eventtime + SERIAL_TIMER
+        return eventtime + SERIAL_TIME
 
     def get_status(self, eventtime):
         return {
