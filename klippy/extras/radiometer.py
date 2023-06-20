@@ -2,6 +2,7 @@
 # username ALL = NOPASSWD: /usr/bin/rfcomm
 # username ALL = NOPASSWD: /usr/bin/chmod
 # klippy-env/bin/pip install pexpect
+# sudo apt install bluez-tools ???
 
 
 import logging
@@ -170,11 +171,23 @@ class Radiometer:
                     p.sendline(f'pair {self.rd_mac_address}')
                     time.sleep(5)
                     logging.warning(self._clear_log(p.before))
+
                     p.expect('Enter PIN code:')
                     logging.warning(self._clear_log(p.before))
+
                     p.sendline(self.rd_pin_code)
                     logging.warning(self._clear_log(p.before))
                     time.sleep(3)
+
+                    child = pexpect.spawn('bt-device -l', timeout=None)
+                    for line in child: 
+                        logging.warning(f'NYAAAA: {line}')
+                    child.close()
+
+                    # p.sendline('devices Connected')
+                    # devices = self._clear_log(p.before)
+                    # if devices.split()[-1] == self.rd_name:
+                    #     break
                 except Exception as ex:
                     continue
                 else:
@@ -292,8 +305,8 @@ class Radiometer:
 
         mcu = self.printer.lookup_object('mcu')
         measured_time = self.reactor.monotonic()
-        if self.sig:
-            self._callback(mcu.estimated_print_time(measured_time), self.sig)
+        # if self.sig:
+        self._callback(mcu.estimated_print_time(measured_time), self.sig)
 
         return measured_time + REPORT_TIME
 
@@ -321,6 +334,7 @@ class Radiometer:
                             'Ошибка в ответе радиометра, отсутствует стартовый '
                             'байт'
                         )
+                        continue
 
                 if len(self.read_buffer) == self.response_length:
                     self.read_queue.put(self.read_buffer)
