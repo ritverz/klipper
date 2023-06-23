@@ -170,7 +170,7 @@ class Radiometer:
             p.sendline(f'remove {self.rd_mac_address}')
             p.expect(PROMPT)
             logging.warning(self._clear_log(p.before))
-            time.sleep(5)
+            # time.sleep(5)
 
             # p.sendline(f'trust {self.rd_mac_address}')
             # time.sleep(5)
