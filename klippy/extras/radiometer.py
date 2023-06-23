@@ -146,7 +146,7 @@ class Radiometer:
     
     def _bt_reset_power(self, process):
 
-        
+
         process.sendline('power off')
         logging.warning('Power off bluetooth device')
         process.expect('Changing power off succeeded')
@@ -215,6 +215,7 @@ class Radiometer:
             self.printer.invoke_shutdown(
                 f'Критическая ошибка при попытке подключения к радиометру '
                 f'{ex.args}'
+                f'{ex.with_traceback()}'
             )
 
     def _open_serial(self):
