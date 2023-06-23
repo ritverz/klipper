@@ -146,14 +146,14 @@ class Radiometer:
     
     def _bt_reset_power(self, process):
 
+        print(process)
+        # process.sendline('power off')
+        # logging.warning('Power off bluetooth device')
+        # process.expect('Changing power off succeeded')
 
-        process.sendline('power off')
-        logging.warning('Power off bluetooth device')
-        process.expect('Changing power off succeeded')
-
-        process.sendline('power on')
-        logging.warning('Power on bluetooth device')
-        process.expect('Changing power on succeeded')
+        # process.sendline('power on')
+        # logging.warning('Power on bluetooth device')
+        # process.expect('Changing power on succeeded')
 
     def _radiometer_connect(self):
         try:
@@ -162,7 +162,7 @@ class Radiometer:
             p = pexpect.spawn('bluetoothctl', encoding='utf-8')
             p.expect(PROMPT)
 
-            self._bt_reset_power(p)            
+            self._bt_reset_power('MEOW')            
 
             p.sendline('scan on')
             p.expect(PROMPT)
@@ -200,7 +200,7 @@ class Radiometer:
                     # if devices.split()[-1] == self.rd_name:
                     #     break
                 except Exception as ex:
-                    self._bt_reset_power(p)
+                    self._bt_reset_power('MEOW')   
                     continue
                 else:
                     break
