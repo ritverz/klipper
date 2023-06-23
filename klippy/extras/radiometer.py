@@ -153,13 +153,13 @@ class Radiometer:
 
             p.sendline('power off')
             time.sleep(1)
-            logging.warning(self._clear_log(p.before))
-            p.expect(PROMPT)
+            logging.warning('Power off bluetooth device')
+            p.expect('Changing power off succeeded')
 
             p.sendline('power on')
             time.sleep(1)
-            logging.warning(self._clear_log(p.before))
-            p.expect(PROMPT)
+            logging.warning('Power on bluetooth device')
+            p.expect('Changing power off succeeded')
 
             p.sendline('scan on')
             time.sleep(10)
