@@ -151,6 +151,16 @@ class Radiometer:
             p = pexpect.spawn('bluetoothctl', encoding='utf-8')
             p.expect(PROMPT)
 
+            p.sendline('power off')
+            time.sleep(1)
+            logging.warning(self._clear_log(p.before))
+            p.expect(PROMPT)
+
+            p.sendline('power on')
+            time.sleep(1)
+            logging.warning(self._clear_log(p.before))
+            p.expect(PROMPT)
+
             p.sendline('scan on')
             time.sleep(10)
             logging.warning(self._clear_log(p.before))
