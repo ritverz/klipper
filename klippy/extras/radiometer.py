@@ -144,7 +144,7 @@ class Radiometer:
         ''', re.VERBOSE)
         return ansi_escape.sub('', text).replace('\x01', '').replace('\x02', '')
     
-    def _bt_reset_power(process):
+    def _bt_reset_power(self, process):
         process.sendline('power off')
         logging.warning('Power off bluetooth device')
         process.expect('Changing power off succeeded')
