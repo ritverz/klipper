@@ -169,7 +169,6 @@ class Radiometer:
             p.sendline('power on')
             logging.warning('Power on bluetooth device')
             p.expect('Changing power on succeeded')
-           
 
             p.sendline('scan on')
             p.expect(PROMPT)
@@ -214,7 +213,7 @@ class Radiometer:
                     p.sendline('power on')
                     logging.warning('Power on bluetooth device')
                     p.expect('Changing power on succeeded')
-                    
+
                     continue
                 else:
                     break
@@ -229,7 +228,6 @@ class Radiometer:
             self.printer.invoke_shutdown(
                 f'Критическая ошибка при попытке подключения к радиометру '
                 f'{ex.args}'
-                f'{ex.with_traceback()}'
             )
 
     def _open_serial(self):
