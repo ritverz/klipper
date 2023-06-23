@@ -184,7 +184,7 @@ class Radiometer:
                     child.close()
 
                 except Exception as ex:
-                    logging.warning(f'Try to change power state {ex.args}')
+                    # logging.warning(f'Try to change power state {ex.args}')
 
                     p.sendline('power off')
                     logging.warning('Power off bluetooth device')
@@ -340,6 +340,8 @@ class Radiometer:
                             'Ошибка в ответе радиометра, отсутствует стартовый '
                             'байт'
                         )
+                        self.response_length = None
+                        self.read_buffer = b''
                         continue
 
                 if len(self.read_buffer) == self.response_length:
