@@ -313,8 +313,6 @@ class Radiometer:
         else:
             logging.warning('Нет ответа от радиометра')
 
-        logging.warning(f'Receive {self.sig}')
-
         mcu = self.printer.lookup_object('mcu')
         measured_time = self.reactor.monotonic()
         self._callback(mcu.estimated_print_time(measured_time), self.sig)
