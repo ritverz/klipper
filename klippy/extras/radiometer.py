@@ -144,6 +144,15 @@ class Radiometer:
         ''', re.VERBOSE)
         return ansi_escape.sub('', text).replace('\x01', '').replace('\x02', '')
     
+    def _bt_reset_power(process):
+        process.sendline('power off')
+        logging.warning('Power off bluetooth device')
+        process.expect('Changing power off succeeded')
+
+        process.sendline('power on')
+        logging.warning('Power on bluetooth device')
+        process.expect('Changing power on succeeded')
+
     def _radiometer_connect(self):
         try:
             pexpect.run('rfkill unblock all')
@@ -151,23 +160,17 @@ class Radiometer:
             p = pexpect.spawn('bluetoothctl', encoding='utf-8')
             p.expect(PROMPT)
 
-            p.sendline('power off')
-            logging.warning('Power off bluetooth device')
-            p.expect('Changing power off succeeded')
-
-            p.sendline('power on')
-            logging.warning('Power on bluetooth device')
-            p.expect('Changing power on succeeded')
+            self._bt_reset_power(p)            
 
             p.sendline('scan on')
-            time.sleep(10)
-            logging.warning(self._clear_log(p.before))
             p.expect(PROMPT)
+            logging.warning(self._clear_log(p.before))
+            time.sleep(10)
 
             p.sendline(f'remove {self.rd_mac_address}')
-            time.sleep(5)
-            logging.warning(self._clear_log(p.before))
             p.expect(PROMPT)
+            logging.warning(self._clear_log(p.before))
+            time.sleep(5)
 
             # p.sendline(f'trust {self.rd_mac_address}')
             # time.sleep(5)
@@ -177,9 +180,7 @@ class Radiometer:
             while True:
                 try:
                     p.sendline(f'pair {self.rd_mac_address}')
-                    time.sleep(5)
-                    logging.warning(self._clear_log(p.before))
-
+                    # time.sleep(5)
                     p.expect('Enter PIN code:')
                     logging.warning(self._clear_log(p.before))
 
@@ -197,14 +198,7 @@ class Radiometer:
                     # if devices.split()[-1] == self.rd_name:
                     #     break
                 except Exception as ex:
-                    p.sendline('power off')
-                    logging.warning('Power off bluetooth device')
-                    p.expect('Changing power off succeeded')
-
-                    p.sendline('power on')
-                    logging.warning('Power on bluetooth device')
-                    p.expect('Changing power on succeeded')
-                    
+                    self._bt_reset_power(p)
                     continue
                 else:
                     break
