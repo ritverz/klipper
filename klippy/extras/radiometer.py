@@ -152,12 +152,10 @@ class Radiometer:
             p.expect(PROMPT)
 
             p.sendline('power off')
-            time.sleep(1)
             logging.warning('Power off bluetooth device')
             p.expect('Changing power off succeeded')
 
             p.sendline('power on')
-            time.sleep(1)
             logging.warning('Power on bluetooth device')
             p.expect('Changing power on succeeded')
 
@@ -199,6 +197,14 @@ class Radiometer:
                     # if devices.split()[-1] == self.rd_name:
                     #     break
                 except Exception as ex:
+                    p.sendline('power off')
+                    logging.warning('Power off bluetooth device')
+                    p.expect('Changing power off succeeded')
+
+                    p.sendline('power on')
+                    logging.warning('Power on bluetooth device')
+                    p.expect('Changing power on succeeded')
+                    
                     continue
                 else:
                     break
