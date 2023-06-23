@@ -143,17 +143,6 @@ class Radiometer:
             )
         ''', re.VERBOSE)
         return ansi_escape.sub('', text).replace('\x01', '').replace('\x02', '')
-    
-    def _bt_reset_power(self, process):
-
-        print(process)
-        # process.sendline('power off')
-        # logging.warning('Power off bluetooth device')
-        # process.expect('Changing power off succeeded')
-
-        # process.sendline('power on')
-        # logging.warning('Power on bluetooth device')
-        # process.expect('Changing power on succeeded')
 
     def _radiometer_connect(self):
         try:
@@ -178,7 +167,6 @@ class Radiometer:
             p.sendline(f'remove {self.rd_mac_address}')
             p.expect(PROMPT)
             logging.warning(self._clear_log(p.before))
-            # time.sleep(5)
 
             # p.sendline(f'trust {self.rd_mac_address}')
             # time.sleep(5)
@@ -188,7 +176,6 @@ class Radiometer:
             while True:
                 try:
                     p.sendline(f'pair {self.rd_mac_address}')
-                    # time.sleep(5)
                     p.expect('Enter PIN code:')
                     logging.warning(self._clear_log(p.before))
 
@@ -201,10 +188,6 @@ class Radiometer:
                         logging.warning(f'NYAAAA: {line}')
                     child.close()
 
-                    # p.sendline('devices Connected')
-                    # devices = self._clear_log(p.before)
-                    # if devices.split()[-1] == self.rd_name:
-                    #     break
                 except Exception as ex:
                     p.sendline('power off')
                     logging.warning('Power off bluetooth device')
@@ -327,6 +310,8 @@ class Radiometer:
             self._decode_data(data)
         else:
             logging.warning('Нет ответа от радиометра')
+
+        logging.warning(f'Receive {self.sig}')
 
         mcu = self.printer.lookup_object('mcu')
         measured_time = self.reactor.monotonic()
