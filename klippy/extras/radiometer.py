@@ -167,11 +167,6 @@ class Radiometer:
             p.sendline(f'remove {self.rd_mac_address}')
             p.expect(PROMPT)
             logging.warning(self._clear_log(p.before))
-
-            # p.sendline(f'trust {self.rd_mac_address}')
-            # time.sleep(5)
-            # logging.warning(self._clear_log(p.before))
-            # p.expect(PROMPT)
             
             while True:
                 try:
@@ -189,6 +184,8 @@ class Radiometer:
                     child.close()
 
                 except Exception as ex:
+                    logging.warning(f'Try to change power state {ex.args}')
+
                     p.sendline('power off')
                     logging.warning('Power off bluetooth device')
                     p.expect('Changing power off succeeded')
