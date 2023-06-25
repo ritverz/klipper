@@ -322,6 +322,7 @@ class Radiometer:
         if data:
             logging.warning(f'Send {data}')
             self.serial.write(data)
+        logging.warning(f'Write time is {eventtime + SERIAL_TIME}')
         return eventtime + SERIAL_TIME
 
     def _read_serial(self, eventtime):
@@ -357,7 +358,8 @@ class Radiometer:
                 self.response_length = None
                 self.read_buffer = b''
                 break
-
+        
+        logging.warning(f'Read time is {eventtime + SERIAL_TIME}')
         return eventtime + SERIAL_TIME
 
     def get_status(self, eventtime):
