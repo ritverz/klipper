@@ -116,7 +116,7 @@ class Radiometer:
             return
 
         self.printer.register_event_handler(
-            'klippy:ready',
+            'klippy:connect',
             self._handle_connect
         )
 
@@ -178,10 +178,10 @@ class Radiometer:
                     logging.warning(self._clear_log(p.before))
                     time.sleep(3)
 
-                    child = pexpect.spawn('bt-device -l', timeout=None)
-                    for line in child: 
-                        logging.warning(f'NYAAAA: {line}')
-                    child.close()
+                    # child = pexpect.spawn('bt-device -l', timeout=None)
+                    # for line in child: 
+                    #     logging.warning(f'NYAAAA: {line}')
+                    # child.close()
 
                 except Exception as ex:
                     logging.warning(f'Try to change power state {ex.args}')
@@ -222,8 +222,6 @@ class Radiometer:
         self.serial = serial.Serial(
             self.serial_port, self.serial_baud, timeout=0, write_timeout=0
         )
-        self.serial.reset_input_buffer()
-        self.serial.reset_output_buffer()
 
         self.main_timer = self.reactor.register_timer(
             self._sample_radiometer, self.reactor.NOW
