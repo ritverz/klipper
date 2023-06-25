@@ -310,6 +310,7 @@ class Radiometer:
 
         mcu = self.printer.lookup_object('mcu')
         measured_time = self.reactor.monotonic()
+        logging.warning(f'Time is {measured_time}')
         self._callback(mcu.estimated_print_time(measured_time), self.sig)
 
         return measured_time + REPORT_TIME
@@ -354,7 +355,7 @@ class Radiometer:
                 self.response_length = None
                 self.read_buffer = b''
                 break
-
+        
         return eventtime + SERIAL_TIME
 
     def get_status(self, eventtime):
