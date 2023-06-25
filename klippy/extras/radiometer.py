@@ -151,13 +151,13 @@ class Radiometer:
             p = pexpect.spawn('bluetoothctl', encoding='utf-8')
             p.expect(PROMPT)
 
-            p.sendline('power off')
-            logging.warning('Power off bluetooth device')
-            p.expect('Changing power off succeeded')
+            # p.sendline('power off')
+            # logging.warning('Power off bluetooth device')
+            # p.expect('Changing power off succeeded')
 
-            p.sendline('power on')
-            logging.warning('Power on bluetooth device')
-            p.expect('Changing power on succeeded')
+            # p.sendline('power on')
+            # logging.warning('Power on bluetooth device')
+            # p.expect('Changing power on succeeded')
 
             p.sendline('scan on')
             p.expect(PROMPT)
@@ -184,7 +184,7 @@ class Radiometer:
                     child.close()
 
                 except Exception as ex:
-                    # logging.warning(f'Try to change power state {ex.args}')
+                    logging.warning(f'Try to change power state {ex.args}')
 
                     p.sendline('power off')
                     logging.warning('Power off bluetooth device')
