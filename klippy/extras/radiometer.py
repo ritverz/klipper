@@ -184,7 +184,7 @@ class Radiometer:
                     child.close()
 
                 except Exception as ex:
-                    logging.warning(f'Try to change power state {ex.args}.')
+                    logging.warning(f'Try to change power state')
 
                     p.sendline('power off')
                     logging.warning('Power off bluetooth device')
@@ -312,6 +312,7 @@ class Radiometer:
 
         mcu = self.printer.lookup_object('mcu host')
         measured_time = self.reactor.monotonic()
+        logging.warning(f'Time is {measured_time}')
         self._callback(mcu.estimated_print_time(measured_time), self.sig)
 
         return measured_time + REPORT_TIME
