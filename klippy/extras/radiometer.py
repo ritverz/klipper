@@ -308,7 +308,7 @@ class Radiometer:
         else:
             logging.warning('Нет ответа от радиометра')
 
-        logging.warning(f'Receive {self.sig}')
+        # logging.warning(f'Receive {self.sig}')
 
         mcu = self.printer.lookup_object('mcu')
         measured_time = self.reactor.monotonic()
@@ -344,7 +344,7 @@ class Radiometer:
                         )
                         self.response_length = None
                         self.read_buffer = b''
-                        continue
+                        break
 
                 if len(self.read_buffer) == self.response_length:
                     self.read_queue.put(self.read_buffer)
@@ -352,6 +352,8 @@ class Radiometer:
                     self.read_buffer = b''
                     break
             else:
+                self.response_length = None
+                self.read_buffer = b''
                 break
 
         return eventtime + SERIAL_TIME
