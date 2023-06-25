@@ -323,6 +323,7 @@ class Radiometer:
 
     def _read_serial(self, eventtime):
         while True:
+            logging.warning(f'Raw {self.read_buffer}')
             self.read_buffer += self.serial.read()
 
             if len(self.read_buffer):
