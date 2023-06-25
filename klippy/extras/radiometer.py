@@ -116,7 +116,7 @@ class Radiometer:
             return
 
         self.printer.register_event_handler(
-            'klippy:connect',
+            'klippy:ready',
             self._handle_connect
         )
 
@@ -222,6 +222,8 @@ class Radiometer:
         self.serial = serial.Serial(
             self.serial_port, self.serial_baud, timeout=0, write_timeout=0
         )
+        self.serial.reset_input_buffer()
+        self.serial.reset_output_buffer()
 
         self.main_timer = self.reactor.register_timer(
             self._sample_radiometer, self.reactor.NOW
