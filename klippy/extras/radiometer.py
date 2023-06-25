@@ -2,7 +2,7 @@
 # username ALL = NOPASSWD: /usr/bin/rfcomm
 # username ALL = NOPASSWD: /usr/bin/chmod
 # klippy-env/bin/pip install pexpect
-# https://stackoverflow.com/questions/57657645/pam-unixsudoauth-conversation-failed-auth-could-not-identify-password-for
+# sudo apt install bluez-tools ???
 
 
 import logging
@@ -184,7 +184,7 @@ class Radiometer:
                     child.close()
 
                 except Exception as ex:
-                    logging.warning(f'Try to change power state')
+                    logging.warning(f'Try to change power state {ex.args}')
 
                     p.sendline('power off')
                     logging.warning('Power off bluetooth device')
@@ -310,9 +310,8 @@ class Radiometer:
         else:
             logging.warning('Нет ответа от радиометра')
 
-        mcu = self.printer.lookup_object('mcu host')
+        mcu = self.printer.lookup_object('mcu')
         measured_time = self.reactor.monotonic()
-        logging.warning(f'Time is {measured_time}')
         self._callback(mcu.estimated_print_time(measured_time), self.sig)
 
         return measured_time + REPORT_TIME
