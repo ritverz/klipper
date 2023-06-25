@@ -2,7 +2,7 @@
 # username ALL = NOPASSWD: /usr/bin/rfcomm
 # username ALL = NOPASSWD: /usr/bin/chmod
 # klippy-env/bin/pip install pexpect
-# sudo apt install bluez-tools ???
+# https://stackoverflow.com/questions/57657645/pam-unixsudoauth-conversation-failed-auth-could-not-identify-password-for
 
 
 import logging
@@ -311,8 +311,9 @@ class Radiometer:
             logging.warning('Нет ответа от радиометра')
 
         mcu = self.printer.lookup_object('mcu host')
-        measured_time = self.reactor.monotonic()
-        logging.warning(f'Time is {measured_time}')
+        # measured_time = self.reactor.monotonic()
+        measured_time = 0
+        # logging.warning(f'Time is {measured_time}')
         self._callback(mcu.estimated_print_time(measured_time), self.sig)
 
         return measured_time + REPORT_TIME
