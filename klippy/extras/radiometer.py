@@ -184,7 +184,7 @@ class Radiometer:
                     child.close()
 
                 except Exception as ex:
-                    logging.warning(f'Try to change power state {ex.args}')
+                    logging.warning(f'Try to change power state {ex.args}.')
 
                     p.sendline('power off')
                     logging.warning('Power off bluetooth device')
