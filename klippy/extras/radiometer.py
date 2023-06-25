@@ -345,7 +345,7 @@ class Radiometer:
                         break
 
                 if len(self.read_buffer) == self.response_length:
-                    logging.warning(f'Raw {self.read_buffer}')
+                    logging.warning(f'Recv {self.read_buffer}')
                     self.read_queue.put(self.read_buffer)
                     self.response_length = None
                     self.read_buffer = b''
