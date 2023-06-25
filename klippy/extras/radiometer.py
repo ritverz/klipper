@@ -323,10 +323,10 @@ class Radiometer:
 
     def _read_serial(self, eventtime):
         while True:
-            logging.warning(f'Raw {self.read_buffer}')
             self.read_buffer += self.serial.read()
 
             if len(self.read_buffer):
+                logging.warning(f'Raw {self.read_buffer}')
                 # Считали стартовый байт и байт длины поля данных.
                 if len(self.read_buffer) == PACKET_HEADER_LENGTH:
                     if self.read_buffer[:1] == START_BYTE:
