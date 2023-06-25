@@ -318,6 +318,7 @@ class Radiometer:
 
     def _write_serial(self, eventtime):
         data = get_data_from_queue(self.write_queue)
+        logging.warning(f'Send {data}')
         self.serial.write(data)
         return eventtime + SERIAL_TIME
 
