@@ -45,7 +45,7 @@ PROMPT = '#'
 
 SERIAL_PORT = '/dev/serial/by-path/pci-0000:00:1d.0-usb-0:1.2:1.0-port0'
 SERIAL_BAUD = 115200
-SERIAL_TIME = 0.1
+SERIAL_TIME = 0.5
 
 GAIN_CHOICE = {x: x for x in (1, 2, 4, 8)}
 
@@ -61,7 +61,7 @@ def get_data_from_queue(queue):
         try:
             data = queue.get_nowait()
         except Empty as em:
-            logging.info(f'В очереди нет данных ({em.args})')
+            logging.warning(f'В очереди нет данных ({em.args})')
     return data
 
 
@@ -307,8 +307,6 @@ class Radiometer:
             self._decode_data(data)
         else:
             logging.warning('Нет ответа от радиометра')
-
-        # logging.warning(f'Receive {self.sig}')
 
         mcu = self.printer.lookup_object('mcu')
         measured_time = self.reactor.monotonic()
