@@ -326,6 +326,7 @@ class Radiometer:
             self.read_buffer += self.serial.read()
 
             if len(self.read_buffer):
+                logging.warning(f'Len {len(self.read_buffer}')
                 logging.warning(f'Raw {self.read_buffer}')
                 # Считали стартовый байт и байт длины поля данных.
                 if len(self.read_buffer) == PACKET_HEADER_LENGTH:
