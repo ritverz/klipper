@@ -64,6 +64,7 @@ class PrinterPins:
         self.active_pins = {}
         self.pin_resolvers = {}
         self.allow_multi_use_pins = {}
+    
     def parse_pin(self, pin_desc, can_invert=False, can_pullup=False):
         desc = pin_desc.strip()
         pullup = invert = 0
@@ -72,9 +73,12 @@ class PrinterPins:
             if desc.startswith('~'):
                 pullup = -1
             desc = desc[1:].strip()
+        
+        # NOTE: Pin invertion logic setup.
         if can_invert and desc.startswith('!'):
             invert = 1
             desc = desc[1:].strip()
+        
         if ':' not in desc:
             chip_name, pin = 'mcu', desc
         else:
@@ -93,9 +97,14 @@ class PrinterPins:
         pin_params = {'chip': self.chips[chip_name], 'chip_name': chip_name,
                       'pin': pin, 'invert': invert, 'pullup': pullup}
         return pin_params
+    
     def lookup_pin(self, pin_desc, can_invert=False, can_pullup=False,
                    share_type=None):
+
+        # Generate a "pin_params" dict
         pin_params = self.parse_pin(pin_desc, can_invert, can_pullup)
+        
+        # Check for "sharedness" of a pin appearing multiple times
         pin = pin_params['pin']
         share_name = "%s:%s" % (pin_params['chip_name'], pin)
         if share_name in self.active_pins:
@@ -108,14 +117,29 @@ class PrinterPins:
                   or pin_params['pullup'] != share_params['pullup']):
                 raise error("Shared pin %s must have same polarity" % (pin,))
             return share_params
+
+        # NOTE: ?
         pin_params['share_type'] = share_type
+        
+        # NOTE: register pin as active?
         self.active_pins[share_name] = pin_params
+
+        # Return the dict
         return pin_params
+
     def setup_pin(self, pin_type, pin_desc):
         can_invert = pin_type in ['endstop', 'digital_out', 'pwm']
         can_pullup = pin_type in ['endstop']
         pin_params = self.lookup_pin(pin_desc, can_invert, can_pullup)
+        # The following "setup_pin" method is likely from the MCU class (at mcu.py).
+        # Other classes also define methods with the same name, including this one :/
+        # For "endstop" pin types, this "setup_pin" instantiates a new
+        # MCU_endstop class, passing it the "pin_params" argument shown 
+        # here directly, and then returns it.
+        # NOTE: it is likely that the following returns an instantiated
+        #       MCU_endstop class, or similar, as defined in "mcu.py".
         return pin_params['chip'].setup_pin(pin_type, pin_params)
+    
     def reset_pin_sharing(self, pin_params):
         share_name = "%s:%s" % (pin_params['chip_name'], pin_params['pin'])
         del self.active_pins[share_name]

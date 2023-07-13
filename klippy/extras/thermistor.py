@@ -99,9 +99,12 @@ class CustomThermistor:
         self.params = {'t1': t1, 'r1': r1, 't2': t2, 'r2': r2,
                        't3': t3, 'r3': r3}
     def create(self, config):
+        # NOTE: instances a "PrinterADCtoTemperature" object.
         return PrinterThermistor(config, self.params)
 
 def load_config_prefix(config):
+    # NOTE: instances a "CustomThermistor" class.
     thermistor = CustomThermistor(config)
     pheaters = config.get_printer().load_object(config, "heaters")
+    # NOTE: the "thermistor.create" method returns a "PrinterADCtoTemperature" object.
     pheaters.add_sensor_factory(thermistor.name, thermistor.create)

@@ -10,6 +10,12 @@ import chelper, util
 _NOW = 0.
 _NEVER = 9999999999999999.
 
+"""
+Use printer.get_reactor() to obtain access to the global "event reactor" class. 
+
+This reactor class allows one to schedule timers, wait for input on file descriptors, and to "sleep" the host code.
+"""
+
 class ReactorTimer:
     def __init__(self, callback, waketime):
         self.callback = callback
@@ -59,6 +65,8 @@ class ReactorFileHandler:
 
 class ReactorGreenlet(greenlet.greenlet):
     def __init__(self, run):
+        # NOTE: "Greenlets are lightweight coroutines
+        #       for in-process concurrent programming"
         greenlet.greenlet.__init__(self, run=run)
         self.timer = None
 
@@ -97,6 +105,8 @@ class SelectReactor:
     def __init__(self, gc_checking=False):
         # Main code
         self._process = False
+        # NOTE: See pyhelper.c
+        #       "Return the monotonic system time as a double"
         self.monotonic = chelper.get_ffi()[1].get_monotonic
         # Python garbage collection
         self._check_gc = gc_checking
@@ -410,6 +420,11 @@ class EPollReactor(SelectReactor):
 
 # Use the poll based reactor if it is available
 try:
+    # NOTE: See: https://docs.python.org/3/library/select.html
+    #       Returns a polling object, which supports registering 
+    #       and unregistering file descriptors, and then polling
+    #       them for I/O events; see section Polling Objects below
+    #       for the methods supported by polling objects.
     select.poll
     Reactor = PollReactor
 except:

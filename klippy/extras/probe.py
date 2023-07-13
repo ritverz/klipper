@@ -14,9 +14,14 @@ can travel further (the Z minimum position can be negative).
 """
 
 class PrinterProbe:
-    def __init__(self, config, mcu_probe):
+    def __init__(self, config, mcu_probe, mcu_probe_name='probe'):
+        """
+        config: ?
+        mcu_probe: this is of "ProbeEndstopWrapper" class, which is a wrapper for "MCU_endstop".
+        """
         self.printer = config.get_printer()
         self.name = config.get_name()
+        self.mcu_probe_name=mcu_probe_name
         self.mcu_probe = mcu_probe
         self.speed = config.getfloat('speed', 5.0, above=0.)
         self.lift_speed = config.getfloat('lift_speed', self.speed, above=0.)
@@ -48,9 +53,13 @@ class PrinterProbe:
                                                  minval=0.)
         self.samples_retries = config.getint('samples_tolerance_retries', 0,
                                              minval=0)
+        
         # Register z_virtual_endstop pin
-        self.printer.lookup_object('pins').register_chip('probe', self)
+        # TODO: study this to implement probing on any direction.
+        self.printer.lookup_object('pins').register_chip(self.mcu_probe_name, self)
+        
         # Register homing event handlers
+        # TODO: these will not be triggered by extra toolheads, consider updating.
         self.printer.register_event_handler("homing:homing_move_begin",
                                             self._handle_homing_move_begin)
         self.printer.register_event_handler("homing:homing_move_end",
@@ -74,6 +83,7 @@ class PrinterProbe:
         self.gcode.register_command('Z_OFFSET_APPLY_PROBE',
                                     self.cmd_Z_OFFSET_APPLY_PROBE,
                                     desc=self.cmd_Z_OFFSET_APPLY_PROBE_help)
+    # NOTE: Methods...
     def _handle_homing_move_begin(self, hmove):
         if self.mcu_probe in hmove.get_mcu_endstops():
             self.mcu_probe.probe_prepare(hmove)
@@ -85,6 +95,7 @@ class PrinterProbe:
         if self.mcu_probe in endstops:
             self.multi_probe_begin()
     def _handle_home_rails_end(self, homing_state, rails):
+        logging.info(f"\n\nprobe._handle_home_rails_end: function triggered.\n\n")
         endstops = [es for rail in rails for es, name in rail.get_endstops()]
         if self.mcu_probe in endstops:
             self.multi_probe_end()
@@ -112,30 +123,60 @@ class PrinterProbe:
         return self.lift_speed
     def get_offsets(self):
         return self.x_offset, self.y_offset, self.z_offset
+    
     def _probe(self, speed):
         toolhead = self.printer.lookup_object('toolhead')
         curtime = self.printer.get_reactor().monotonic()
+        
+        # TODO: consider removing this check.
         if 'z' not in toolhead.get_status(curtime)['homed_axes']:
             raise self.printer.command_error("Must home before probe")
+        
         phoming = self.printer.lookup_object('homing')
         pos = toolhead.get_position()
+
+        # NOTE: "self.z_position" is equal to the "min_position"
+        #       parameter from the "z_stepper" section.
+        #       It is used to override the Z component of the 
+        #       current toolhead position, probably to generate
+        #       the target coordinates for the homing move.
         pos[2] = self.z_position
+        
         try:
+            # NOTE: This probe method uses "phoming.probing_move",
+            #       passing it "mcu_probe" which is an instance of 
+            #       "ProbeEndstopWrapper", a wrapper for the probes'
+            #       MCU_endstop object.
+            # NOTE: This is in contrast to "phoming.manual_home",
+            #       which additionally requires a toolhead object.
+            #       It turns out that, if not provided, HomingMove
+            #       will get the main toolhead by lookup and use it.
+            # NOTE: the method is passed "pos", which is "min_position"
+            #       parameter from the "z_stepper" section, and the
+            #       current XYE toolhead coordinates (see notes above). 
             epos = phoming.probing_move(self.mcu_probe, pos, speed)
+
         except self.printer.command_error as e:
+            # NOTE: the "fail" logic of the G38 gcode could be
+            #       based on this behaviour.
             reason = str(e)
             if "Timeout during endstop homing" in reason:
                 reason += HINT_TIMEOUT
             raise self.printer.command_error(reason)
+        
         self.gcode.respond_info("probe at %.3f,%.3f is z=%.6f"
                                 % (epos[0], epos[1], epos[2]))
+        # TODO: find out why it returns the fourth position.
         return epos[:3]
+    
     def _move(self, coord, speed):
         self.printer.lookup_object('toolhead').manual_move(coord, speed)
+
     def _calc_mean(self, positions):
         count = float(len(positions))
         return [sum([pos[i] for pos in positions]) / count
                 for i in range(3)]
+
     def _calc_median(self, positions):
         z_sorted = sorted(positions, key=(lambda p: p[2]))
         middle = len(positions) // 2
@@ -144,7 +185,12 @@ class PrinterProbe:
             return z_sorted[middle]
         # even number of samples
         return self._calc_mean(z_sorted[middle-1:middle+1])
+    
+    # TODO: reuse this for probing on any direction.
+    # NOTE: actually... it might be simpler to use the "_probe" method above directly.
+    #       This function does a lot more than I need for G38.X.
     def run_probe(self, gcmd):
+        # NOTE: this command is called by the "cmd_PROBE" handler immediately.
         speed = gcmd.get_float("PROBE_SPEED", self.speed, above=0.)
         lift_speed = self.get_lift_speed(gcmd)
         sample_count = gcmd.get_int("SAMPLES", self.sample_count, minval=1)
@@ -158,11 +204,19 @@ class PrinterProbe:
         must_notify_multi_probe = not self.multi_probe_pending
         if must_notify_multi_probe:
             self.multi_probe_begin()
+
+        # NOTE: gets the current Z position of the toolhead, before probing.
+        #       It is used below after the probing move, likely to allow for
+        #       repeatedprobing.
         probexy = self.printer.lookup_object('toolhead').get_position()[:2]
+        
         retries = 0
         positions = []
         while len(positions) < sample_count:
             # Probe position
+            # NOTE: "_probe" returns the fourth element in the "epos" list,
+            #       returned by "phoming.probing_move" (which is really the
+            #       output from "hmove.homing_move").
             pos = self._probe(speed)
             positions.append(pos)
             # Check samples tolerance
@@ -175,18 +229,23 @@ class PrinterProbe:
                 positions = []
             # Retract
             if len(positions) < sample_count:
+                # NOTE: is a "rise" before repearing move?
                 self._move(probexy + [pos[2] + sample_retract_dist], lift_speed)
+        
         if must_notify_multi_probe:
             self.multi_probe_end()
         # Calculate and return result
         if samples_result == 'median':
             return self._calc_median(positions)
         return self._calc_mean(positions)
+    
+    # TODO: reuse this for probing on any direction.
     cmd_PROBE_help = "Probe Z-height at current XY position"
     def cmd_PROBE(self, gcmd):
         pos = self.run_probe(gcmd)
         gcmd.respond_info("Result is z=%.6f" % (pos[2],))
         self.last_z_result = pos[2]
+    
     cmd_QUERY_PROBE_help = "Return the status of the z-probe"
     def cmd_QUERY_PROBE(self, gcmd):
         toolhead = self.printer.lookup_object('toolhead')
@@ -194,10 +253,12 @@ class PrinterProbe:
         res = self.mcu_probe.query_endstop(print_time)
         self.last_state = res
         gcmd.respond_info("probe: %s" % (["open", "TRIGGERED"][not not res],))
+
     def get_status(self, eventtime):
         return {'name': self.name,
                 'last_query': self.last_state,
                 'last_z_result': self.last_z_result}
+
     cmd_PROBE_ACCURACY_help = "Probe Z-height accuracy at current XY position"
     def cmd_PROBE_ACCURACY(self, gcmd):
         speed = gcmd.get_float("PROBE_SPEED", self.speed, above=0.)
@@ -240,6 +301,7 @@ class PrinterProbe:
             "probe accuracy results: maximum %.6f, minimum %.6f, range %.6f, "
             "average %.6f, median %.6f, standard deviation %.6f" % (
             max_value, min_value, range_value, avg_value, median, sigma))
+
     def probe_calibrate_finalize(self, kin_pos):
         if kin_pos is None:
             return
@@ -250,6 +312,7 @@ class PrinterProbe:
             "with the above and restart the printer." % (self.name, z_offset))
         configfile = self.printer.lookup_object('configfile')
         configfile.set(self.name, 'z_offset', "%.3f" % (z_offset,))
+
     cmd_PROBE_CALIBRATE_help = "Calibrate the probe's z_offset"
     def cmd_PROBE_CALIBRATE(self, gcmd):
         manual_probe.verify_no_manual_probe(self.printer)
@@ -267,6 +330,7 @@ class PrinterProbe:
         # Start manual probe
         manual_probe.ManualProbeHelper(self.printer, gcmd,
                                        self.probe_calibrate_finalize)
+
     def cmd_Z_OFFSET_APPLY_PROBE(self,gcmd):
         offset = self.gcode_move.get_status()['homing_origin'].z
         configfile = self.printer.lookup_object('configfile')
@@ -294,6 +358,7 @@ class ProbeEndstopWrapper:
             config, 'activate_gcode', '')
         self.deactivate_gcode = gcode_macro.load_template(
             config, 'deactivate_gcode', '')
+        
         # Create an "endstop" object to handle the probe pin
         ppins = self.printer.lookup_object('pins')
         pin = config.get('pin')
@@ -311,7 +376,9 @@ class ProbeEndstopWrapper:
         self.query_endstop = self.mcu_endstop.query_endstop
         # multi probes state
         self.multi = 'OFF'
+    
     def _handle_mcu_identify(self):
+        logging.info(f"\n\n" + "ProbeEndstopWrapper._handle_mcu_identify activated (Z axis)" + "\n\n")
         kin = self.printer.lookup_object('toolhead').get_kinematics()
         for stepper in kin.get_steppers():
             if stepper.is_active_axis('z'):
@@ -407,7 +474,7 @@ class ProbePointsHelper:
     def start_probe(self, gcmd):
         manual_probe.verify_no_manual_probe(self.printer)
         # Lookup objects
-        probe = self.printer.lookup_object('probe', None)
+        probe = self.printer.lookup_object(self.mcu_probe_name, None)
         method = gcmd.get('METHOD', 'automatic').lower()
         self.results = []
         def_move_z = self.default_horizontal_move_z

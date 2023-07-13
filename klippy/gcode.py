@@ -8,11 +8,12 @@ import os, re, logging, collections, shlex
 class CommandError(Exception):
     pass
 
-Coord = collections.namedtuple('Coord', ('x', 'y', 'z', 'e'))
+Coord = collections.namedtuple('Coord', ('x', 'y', 'z', 'e', 'a', 'b', 'c'), 
+                               defaults = (None,None,None,None,None,None,None))
 
 class GCodeCommand:
     error = CommandError
-    def __init__(self, gcode, command, commandline, params, need_ack):
+    def __init__(self, gcode, command, commandline, params, need_ack: bool):
         self._command = command
         self._commandline = commandline
         self._params = params
@@ -42,7 +43,16 @@ class GCodeCommand:
             rawparams = rawparams[1:]
         return rawparams
     def ack(self, msg=None):
+        # NOTE: response messages appear to start with "ok",
+        #       but may have more content to the right.
+        #       They can be sent using "respond_raw", ultimately
+        #       a method from GCodeDispatch.
+        # NOTE: Response messages are only built if GCodeCommand
+        #       was setup with "need_ack=True".
         if not self._need_ack:
+            # NOTE: Early return, no message response sent. This
+            #       Is the case for commands coming from 
+            #       GCodeDispatch.run_script.
             return False
         ok_msg = "ok"
         if msg:
@@ -111,6 +121,7 @@ class GCodeDispatch:
             func = getattr(self, 'cmd_' + cmd)
             desc = getattr(self, 'cmd_' + cmd + '_help', None)
             self.register_command(cmd, func, True, desc)
+    
     def is_traditional_gcode(self, cmd):
         # A "traditional" g-code command is a letter and followed by a number
         try:
@@ -119,25 +130,31 @@ class GCodeDispatch:
             return cmd[0].isupper() and cmd[1].isdigit()
         except:
             return False
+    
     def register_command(self, cmd, func, when_not_ready=False, desc=None):
+        # logging.info("\n" + f"gcode: registering command: {cmd}")
         if func is None:
             old_cmd = self.ready_gcode_handlers.get(cmd)
             if cmd in self.ready_gcode_handlers:
                 del self.ready_gcode_handlers[cmd]
             if cmd in self.base_gcode_handlers:
                 del self.base_gcode_handlers[cmd]
+            # logging.info("\n" + f"gcode: command '{cmd}' deleted.")
             return old_cmd
         if cmd in self.ready_gcode_handlers:
             raise self.printer.config_error(
                 "gcode command %s already registered" % (cmd,))
         if not self.is_traditional_gcode(cmd):
+            # logging.info("\n" + f"gcode: command '{cmd}' is an extended command.")
             origfunc = func
             func = lambda params: origfunc(self._get_extended_params(params))
         self.ready_gcode_handlers[cmd] = func
         if when_not_ready:
+            # logging.info("\n" + f"gcode: command '{cmd}' registered as base command 'when not ready'.")
             self.base_gcode_handlers[cmd] = func
         if desc is not None:
             self.gcode_help[cmd] = desc
+
     def register_mux_command(self, cmd, key, value, func, desc=None):
         prev = self.mux_commands.get(cmd)
         if prev is None:
@@ -154,6 +171,7 @@ class GCodeDispatch:
                 "mux command %s %s %s already registered (%s)" % (
                     cmd, key, value, prev_values))
         prev_values[value] = func
+    
     def get_command_help(self):
         return dict(self.gcode_help)
     def register_output_handler(self, cb):
@@ -173,6 +191,7 @@ class GCodeDispatch:
     # Parse input into commands
     args_r = re.compile('([A-Z_]+|[A-Z*/])')
     def _process_commands(self, commands, need_ack=True):
+        # NOTE: "run_script" calls this method with "need_ack=False".
         for line in commands:
             # Ignore comments and leading/trailing spaces
             line = origline = line.strip()
@@ -191,19 +210,22 @@ class GCodeDispatch:
             # Build gcode "params" dictionary
             params = { parts[i]: parts[i+1].strip()
                        for i in range(1, numparts, 2) }
-            gcmd = GCodeCommand(self, cmd, origline, params, need_ack)
+            gcmd = GCodeCommand(gcode=self, command=cmd, commandline=origline, params=params, need_ack=need_ack)
             # Invoke handler for command
             handler = self.gcode_handlers.get(cmd, self.cmd_default)
             try:
+                # The default is to call "cmd_default" as a "handler".
                 handler(gcmd)
             except self.error as e:
+                # NOTE: "self.error" is an instance of "CommandError",
+                #       a simple subclass of "Exception".
                 self._respond_error(str(e))
                 self.printer.send_event("gcode:command_error")
                 if not need_ack:
                     raise
-            except:
+            except Exception as e:
                 msg = 'Internal error on command:"%s"' % (cmd,)
-                logging.exception(msg)
+                logging.exception(msg + str(e))
                 self.printer.invoke_shutdown(msg)
                 self._respond_error(msg)
                 if not need_ack:
@@ -220,6 +242,10 @@ class GCodeDispatch:
         return GCodeCommand(self, command, commandline, params, False)
     # Response handling
     def respond_raw(self, msg):
+        # NOTE: Functions in "self.output_callbacks" were registered
+        #       by calls to "self.register_output_handler()". That
+        #       method can be called by GcodeIO (pseudo-tty interface)
+        #       or GCodeHelper.
         for cb in self.output_callbacks:
             cb(msg)
     def respond_info(self, msg, log=True):
@@ -244,22 +270,27 @@ class GCodeDispatch:
         r'(?P<args>[^#*;]*?)'
         r'\s*(?:[#*;].*)?$')
     def _get_extended_params(self, gcmd):
+        # NOTE: called for "non-traditional" GCODEs.
         m = self.extended_r.match(gcmd.get_commandline())
         if m is None:
-            raise self.error("Malformed command '%s'"
+            raise self.error("Malformed command '%s' (regex mismatch)"
                              % (gcmd.get_commandline(),))
         eargs = m.group('args')
         try:
+            # NOTE: get "KEY=VALUE" parameters.
             eparams = [earg.split('=', 1) for earg in shlex.split(eargs)]
+            # NOTE: Prepare a dictionary from the extracted parameters.
             eparams = { k.upper(): v for k, v in eparams }
             gcmd._params.clear()
             gcmd._params.update(eparams)
             return gcmd
         except ValueError as e:
-            raise self.error("Malformed command '%s'"
+            raise self.error("Malformed command '%s' (value error)"
                              % (gcmd.get_commandline(),))
     # G-Code special command handlers
-    def cmd_default(self, gcmd):
+    def cmd_default(self, gcmd: GCodeCommand):
+        # NOTE: This is the default GCODE command handler, called by
+        #       "self._process_commands".
         cmd = gcmd.get_command()
         if cmd == 'M105':
             # Don't warn about temperature requests when not ready
@@ -289,7 +320,21 @@ class GCodeDispatch:
                 not gcmd.get_float('S', 1.) or self.is_fileinput)):
             # Don't warn about requests to turn off fan when fan not present
             return
+        
+        # NOTE: "respond_info" uses "GCodeDispatch.respond_info" to prepare a
+        #       response, and then sends it through "GCodeDispatch.respond_raw".
         gcmd.respond_info('Unknown command:"%s"' % (cmd,))
+        # NOTE: Now raising an error on unknown command, it is strange to me
+        #       that this should be simply ignored. A missed command can also
+        #       damage the hardware. "respond_info" is not enough.
+        # NOTE: "gcmd" is of class GCodeCommand, and the "error" attribute 
+        #       is "CommandError" (which is a subclass of Exception). The 
+        #       exception will be caught by "_process_commands", and handled
+        #       by calling "GCodeDispatch._respond_error" (which calls "respond_raw"
+        #       and the downstream "output_callbacks") and then sends an event:
+        #       "printer.send_event("gcode:command_error")".
+        raise gcmd.error('Unknown command error:"%s"' % (cmd,))
+    
     def _cmd_mux(self, command, gcmd):
         key, values = self.mux_commands[command]
         if None in values:
@@ -350,6 +395,15 @@ class GCodeDispatch:
         for cmd in sorted(self.gcode_handlers):
             if cmd in self.gcode_help:
                 cmdhelp.append("%-10s: %s" % (cmd, self.gcode_help[cmd]))
+        # NOTE: Also append GCODE commands with no help.
+        for cmd in sorted(self.gcode_handlers):
+            if cmd not in self.gcode_help:
+                cmdhelp.append("%-10s: %s" % (cmd, "no description."))
+        # NOTE: Also append "basic" GCODE commands (i.e. G1, G28, etc.).
+        # NOTE: Commented out because it seems that base commands are also in ready commands.
+        # cmdhelp.append("\nAvailable basic commands:")
+        # for cmd in sorted(self.base_gcode_handlers):
+        #     cmdhelp.append("%-10s: %s" % (cmd, self.gcode_help.get(cmd, "no description.")))
         gcmd.respond_info("\n".join(cmdhelp), log=False)
 
 # Support reading gcode from a pseudo-tty interface

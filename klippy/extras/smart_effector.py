@@ -49,6 +49,9 @@ class ControlPinHelper:
         return bit_time
 
 class SmartEffectorEndstopWrapper:
+    # NOTE: this object is instantiated below and passed to the "mcu_probe"
+    #       argument of "probe.PrinterProbe", in place of the normal 
+    #       "ProbeEndstopWrapper" used in "probe.py".
     def __init__(self, config):
         self.printer = config.get_printer()
         self.gcode = self.printer.lookup_object('gcode')
@@ -79,16 +82,28 @@ class SmartEffectorEndstopWrapper:
                                     self.cmd_SET_SMART_EFFECTOR,
                                     desc=self.cmd_SET_SMART_EFFECTOR_help)
     def probe_prepare(self, hmove):
+        # NOTE: this is supposed to fix the "" error.
+        
         toolhead = self.printer.lookup_object('toolhead')
+        
+        # NOTE: "self.probe_wrapper" is a "ProbeEndstopWrapper" object,
+        #       initialized in the same way than the g38 probe module.
+        #       The "probe_prepare" method has something to do with 
+        #       "multi" probing, which is not used in g38.
         self.probe_wrapper.probe_prepare(hmove)
+        
         if self.probe_accel:
             systime = self.printer.get_reactor().monotonic()
             toolhead_info = toolhead.get_status(systime)
             self.old_max_accel = toolhead_info['max_accel']
             self.gcode.run_script_from_command(
                     "M204 S%.3f" % (self.probe_accel,))
+        
+        # NOTE: the "delay" set by recovery_time is implemented
+        #       here as a "dwell" command.
         if self.recovery_time:
             toolhead.dwell(self.recovery_time)
+        
     def probe_finish(self, hmove):
         if self.probe_accel:
             self.gcode.run_script_from_command(

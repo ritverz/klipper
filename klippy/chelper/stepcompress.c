@@ -40,7 +40,7 @@ struct stepcompress {
     uint32_t oid;
     int32_t queue_step_msgtag, set_next_step_dir_msgtag;
     int sdir, invert_sdir;
-    // Step+dir+step filter
+    // Step+dir+step filter (SDS_CHECK_TIME in toolhead.py)
     uint64_t next_step_clock;
     int next_step_dir;
     // History tracking
@@ -348,6 +348,10 @@ add_move(struct stepcompress *sc, uint64_t first_clock, struct step_move *move)
     uint32_t ticks = move->add*addfactor + move->interval*(move->count-1);
     uint64_t last_clock = first_clock + ticks;
 
+    // Log all incoming queue_step commands
+    // errorf("start=%lld end=%lld: o=%d i=%d c=%d a=%d", (long long)(first_clock - move->interval), (long long)last_clock, sc->oid, move->interval, move->count, move->add);
+    // errorf("queuelog %lld %lld %d %d %d %d", (long long)(first_clock - move->interval), (long long)last_clock, sc->oid, move->interval, move->count, move->add);
+
     // Create and queue a queue_step command
     uint32_t msg[5] = {
         sc->queue_step_msgtag, sc->oid, move->interval, move->count, move->add
@@ -495,6 +499,7 @@ queue_append(struct stepcompress *sc)
     return 0;
 }
 
+// ¿Is this related to Step+dir+step filter (SDS_CHECK_TIME in toolhead.py)?
 #define SDS_FILTER_TIME .000750
 
 // Add next step time

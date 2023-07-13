@@ -7,6 +7,7 @@
 import sys, os, gc, optparse, logging, time, collections, importlib
 import util, reactor, queuelogger, msgproto
 import gcode, configfile, pins, mcu, toolhead, webhooks
+import re
 
 message_ready = "Printer is ready"
 
@@ -90,12 +91,17 @@ class Printer:
             raise self.config_error(
                 "Printer object '%s' already created" % (name,))
         self.objects[name] = obj
+    
     def lookup_object(self, name, default=configfile.sentinel):
+        # NOTE: get an object from the objects Dict.
+        #       Objects are added by the 'load_object'
+        #       method below.
         if name in self.objects:
             return self.objects[name]
         if default is configfile.sentinel:
             raise self.config_error("Unknown config object '%s'" % (name,))
         return default
+    
     def lookup_objects(self, module=None):
         if module is None:
             return list(self.objects.items())
@@ -105,11 +111,52 @@ class Printer:
         if module in self.objects:
             return [(module, self.objects[module])] + objs
         return objs
+
+    def lookup_extruders(self):
+        # NOTE: inspired by "lookup_objects".
+        pattern = re.compile('extruder[0-9]*$')
+        objs = [(name, self.objects[name])
+                for name in self.objects if pattern.match(name)]
+        return objs
+
+    def lookup_extruder_steppers(self):
+        # NOTE: convenience function to get the "ExtruderStepper" 
+        #       objects from all extruder/extruderN objects.
+        # NOTE: use "extruder_stepper.rail.get_steppers()" to access
+        #       the "PrinterStepper (MCU_stepper)" objects.
+        extruder_steppers = []
+        extruder_objs = self.lookup_extruders()
+        for extruder_obj in extruder_objs:
+            extruder_name = extruder_obj[0]
+            extruder = extruder_obj[1]                      # PrinterExtruder
+            extruder_stepper = extruder.extruder_stepper    # ExtruderStepper
+            extruder_steppers.append(extruder_stepper)
+        return extruder_steppers
+    
     def load_object(self, config, section, default=configfile.sentinel):
+        # NOTE: I believe that this function "loads" all python
+        #       files in the "extras/" directory, as objects in
+        #       this class.
+
+        # NOTE: sections already loaded are skipeed.
         if section in self.objects:
             return self.objects[section]
+
+        # NOTE: loading of "new" sections, starts with
+        #       splitting the section title: "manual_stepper syringeStepper"
+        #       is converted to a list ["manual_stepper", "syringeStepper"].
+        #       The first part of the name is always the Python
+        #       module of the extras directory, the second part
+        #       must be an ID or "key" for loading several modules
+        #       of the same kind.
+        # NOTE: Although multiple extruders can be defined, those use a 
+        #       different syntax: "extruder", "extruder1", etc. 
         module_parts = section.split()
+        # NOTE: this is the first part of the section name,
+        #       that will match a module name.
         module_name = module_parts[0]
+
+        # NOTE: the path to the corresponding module is now built.
         py_name = os.path.join(os.path.dirname(__file__),
                                'extras', module_name + '.py')
         py_dirname = os.path.join(os.path.dirname(__file__),
@@ -118,7 +165,14 @@ class Printer:
             if default is not configfile.sentinel:
                 return default
             raise self.config_error("Unable to load module '%s'" % (section,))
+
+        # NOTE: Importing is probably done here,
+        #       using the external "importlib" module.
         mod = importlib.import_module('extras.' + module_name)
+
+        # NOTE: this part then runs the "loading" functions
+        #       usually defined at the end of each extras module.
+        #       The functions are named in a stereotyped way.
         init_func = 'load_config'
         if len(module_parts) > 1:
             init_func = 'load_config_prefix'
@@ -127,6 +181,10 @@ class Printer:
             if default is not configfile.sentinel:
                 return default
             raise self.config_error("Unable to load module '%s'" % (section,))
+        
+        # NOTE: Now the object returned by the modules init function
+        #       is saved to the "local" objects dict.
+        #       It is saved with a "section" name which i dont understand yet.
         self.objects[section] = init_func(config.getsection(section))
         return self.objects[section]
     def _read_config(self):
@@ -343,12 +401,35 @@ def main():
     else:
         logging.getLogger().setLevel(debuglevel)
     logging.info("Starting Klippy...")
-    start_args['software_version'] = util.get_git_version()
+    git_info = util.get_git_version()
+    git_vers = git_info["version"]
+    extra_files = [fname for code, fname in git_info["file_status"]
+                   if (code in ('??', '!!') and fname.endswith('.py')
+                       and (fname.startswith('klippy/kinematics/')
+                            or fname.startswith('klippy/extras/')))]
+    modified_files = [fname for code, fname in git_info["file_status"]
+                      if code == 'M']
+    extra_git_desc = ""
+    if extra_files:
+        if not git_vers.endswith('-dirty'):
+            git_vers = git_vers + '-dirty'
+        if len(extra_files) > 10:
+            extra_files[10:] = ["(+%d files)" % (len(extra_files) - 10,)]
+        extra_git_desc += "\nUntracked files: %s" % (', '.join(extra_files),)
+    if modified_files:
+        if len(modified_files) > 10:
+            modified_files[10:] = ["(+%d files)" % (len(modified_files) - 10,)]
+        extra_git_desc += "\nModified files: %s" % (', '.join(modified_files),)
+    extra_git_desc += "\nBranch: %s" % (git_info["branch"])
+    extra_git_desc += "\nRemote: %s" % (git_info["remote"])
+    extra_git_desc += "\nTracked URL: %s" % (git_info["url"])
+    start_args['software_version'] = git_vers
     start_args['cpu_info'] = util.get_cpu_info()
     if bglogger is not None:
         versions = "\n".join([
             "Args: %s" % (sys.argv,),
-            "Git version: %s" % (repr(start_args['software_version']),),
+            "Git version: %s%s" % (repr(start_args['software_version']),
+                                   extra_git_desc),
             "CPU: %s" % (start_args['cpu_info'],),
             "Python: %s" % (repr(sys.version),)])
         logging.info(versions)
@@ -363,7 +444,13 @@ def main():
             bglogger.clear_rollover_info()
             bglogger.set_rollover_info('versions', versions)
         gc.collect()
+
+        # NOTE: from the docs... "the global "event reactor" class.
+        #       This reactor class allows one to schedule timers, 
+        #       wait for input on file descriptors, and to "sleep" 
+        #       the host code."
         main_reactor = reactor.Reactor(gc_checking=True)
+        
         printer = Printer(main_reactor, bglogger, start_args)
         res = printer.run()
         if res in ['exit', 'error_exit']:

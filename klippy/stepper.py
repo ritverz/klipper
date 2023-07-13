@@ -68,6 +68,10 @@ class MCU_stepper:
             self._step_pulse_duration = pulse_duration
         self._req_step_both_edge = step_both_edge
     def setup_itersolve(self, alloc_func, *params):
+        # NOTE: if for example the "alloc_func" is "polar_stepper_alloc"
+        #       (from "kin_polar.c") that function will be called to
+        #       produce a "stepper_kinematics" C object of type "r" or "a"
+        #       ("radius" and "angle", respectively).
         ffi_main, ffi_lib = chelper.get_ffi()
         sk = ffi_main.gc(getattr(ffi_lib, alloc_func)(*params), ffi_lib.free)
         self.set_stepper_kinematics(sk)
@@ -129,29 +133,56 @@ class MCU_stepper:
         ffi_main, ffi_lib = chelper.get_ffi()
         return ffi_lib.itersolve_calc_position_from_coord(
             self._stepper_kinematics, coord[0], coord[1], coord[2])
+    
     def set_position(self, coord):
+        logging.info("\n\n" + f"MCU_stepper.set_position: setting coord={coord} on stepper={self._name}\n\n")
+        # NOTE: reads current position from "get_commanded_position()",
+        #       adds the "_mcu_position_offset" and converts to position
+        #       dividing by "_step_dist".
         mcu_pos = self.get_mcu_position()
+
         sk = self._stepper_kinematics
         ffi_main, ffi_lib = chelper.get_ffi()
+
+        # NOTE: "itersolve_set_position" sets "sk->commanded_pos" (at itersolve.c)
+        logging.info("\n\n" + f"MCU_stepper.set_position: calling itersolve_set_position\n\n")
         ffi_lib.itersolve_set_position(sk, coord[0], coord[1], coord[2])
+
+        # NOTE: "_set_mcu_position" uses "self.get_commanded_position" 
+        #       and "itersolve_get_commanded_pos" to read "sk->commanded_pos" 
+        #       (at itersolve.c), which has just been set above,
+        #       and updates "self._mcu_position_offset".
+        logging.info("\n\n" + f"MCU_stepper.set_position: calling _set_mcu_position\n\n")
         self._set_mcu_position(mcu_pos)
+    
     def get_commanded_position(self):
         ffi_main, ffi_lib = chelper.get_ffi()
+        # NOTE: This probably reads the position previously
+        #       set by "set_position"/"itersolve_set_position"
         return ffi_lib.itersolve_get_commanded_pos(self._stepper_kinematics)
+    
     def get_mcu_position(self):
         mcu_pos_dist = self.get_commanded_position() + self._mcu_position_offset
         mcu_pos = mcu_pos_dist / self._step_dist
+        # TODO: find out what "0.5" means:
         if mcu_pos >= 0.:
             return int(mcu_pos + 0.5)
         return int(mcu_pos - 0.5)
+    
     def _set_mcu_position(self, mcu_pos):
         mcu_pos_dist = mcu_pos * self._step_dist
+        # TODO: find out what "self._mcu_position_offset" is.
+        # NOTE: "get_commanded_position" reads "sk->commanded_pos" using
+        #       the "itersolve_get_commanded_pos" function (at itersolve.c)
         self._mcu_position_offset = mcu_pos_dist - self.get_commanded_position()
+    
     def get_past_mcu_position(self, print_time):
         clock = self._mcu.print_time_to_clock(print_time)
         ffi_main, ffi_lib = chelper.get_ffi()
+        # NOTE: "Search history of moves to find a past position at a given clock"
         pos = ffi_lib.stepcompress_find_past_position(self._stepqueue, clock)
         return int(pos)
+    
     def mcu_to_commanded_position(self, mcu_pos):
         return mcu_pos * self._step_dist - self._mcu_position_offset
     def dump_steps(self, count, start_clock, end_clock):
@@ -160,6 +191,8 @@ class MCU_stepper:
         count = ffi_lib.stepcompress_extract_old(self._stepqueue, data, count,
                                                  start_clock, end_clock)
         return (data, count)
+    def get_stepper_kinematics(self):
+        return self._stepper_kinematics
     def set_stepper_kinematics(self, sk):
         old_sk = self._stepper_kinematics
         mcu_pos = 0
@@ -171,8 +204,13 @@ class MCU_stepper:
         self.set_trapq(self._trapq)
         self._set_mcu_position(mcu_pos)
         return old_sk
+    
     def note_homing_end(self):
+
         ffi_main, ffi_lib = chelper.get_ffi()
+        # NOTE: - stepcompress_reset:   "Reset the internal state of the stepcompress object"
+        #       - stepcompress_flush:   "Flush pending steps"
+        #       - queue_flush:          "Convert previously scheduled steps into commands for the mcu"
         ret = ffi_lib.stepcompress_reset(self._stepqueue, 0)
         if ret:
             raise error("Internal error in stepcompress")
@@ -181,6 +219,7 @@ class MCU_stepper:
         if ret:
             raise error("Internal error in stepcompress")
         self._query_mcu_position()
+    
     def _query_mcu_position(self):
         if self._mcu.is_fileoutput():
             return
@@ -219,7 +258,7 @@ class MCU_stepper:
                 self._active_callbacks = []
                 for cb in cbs:
                     cb(ret)
-        # Generate steps
+        # Generate step times for a range of moves on the trapq
         sk = self._stepper_kinematics
         ret = self._itersolve_generate_steps(sk, flush_time)
         if ret:
@@ -228,11 +267,16 @@ class MCU_stepper:
         ffi_main, ffi_lib = chelper.get_ffi()
         a = axis.encode()
         return ffi_lib.itersolve_is_active_axis(self._stepper_kinematics, a)
+    
+    def get_steppers(self):
+        # NOTE: dummy method for "_handle_mcu_identify" at "probe_G38.py".
+        return [self]
+
 
 # Helper code to build a stepper object from a config section
 def PrinterStepper(config, units_in_radians=False):
     printer = config.get_printer()
-    name = config.get_name()
+    name = config.get_name()  # NOTE: Example: "stepper_x".
     # Stepper definition
     ppins = printer.lookup_object('pins')
     step_pin = config.get('step_pin')
@@ -291,19 +335,52 @@ def parse_step_distance(config, units_in_radians=None, note_valid=False):
 
 # A motor control "rail" with one (or more) steppers and one (or more)
 # endstops.
+# NOTE: in this branch, this class can also be used to create a stepper
+#       for the ExtruderStepper class.
 class PrinterRail:
     def __init__(self, config, need_position_minmax=True,
                  default_position_endstop=None, units_in_radians=False):
         # Primary stepper and endstop
         self.stepper_units_in_radians = units_in_radians
+        
+        # NOTE: List of MCU_stepper objects (setup by PrinterStepper).
         self.steppers = []
+        
+        # NOTE: list of tuples with elements: (mcu_endstop, name)
+        #       mcu_endstop: likely an instance of MCU_endstop.
+        #       name: name of the associated stepper.
         self.endstops = []
+        
+        # TODO: not sure what this is yet.
         self.endstop_map = {}
+
+        # NOTE: add_extra_stepper creates a "stepper" object from the
+        #       "PrinterStepper" function, and adds it to the "self.steppers" list.
+        #       Internally, the PrinterStepper function instantiates an
+        #       "MCU_stepper" class, registers it in several modules,
+        #       and returns it.
+        #       It then handles the "setup" of the associated
+        #       endstop into an MCU_endstop class, and also adds
+        #       the stepper to this class.
         self.add_extra_stepper(config)
+        
+        # NOTE: this grabs the first "MCU_stepper" item in the list,
+        #       which was added by the call to "add_extra_stepper" above.
         mcu_stepper = self.steppers[0]
+        
+        # NOTE: The get_name function is inherited from the
+        #       first stepper in the steppers list of the
+        #       PrinterRail class. It thus keeps only the first
+        #       one. I imagine something like this:
+        #       Keep "stepper_x" from ["stepper_x", "stepper_x1"]
+        #       The "mcu_stepper.get_name" function will return
+        #       "stepper_x" unless "short=True", in which case it
+        #       will return just "x".
         self.get_name = mcu_stepper.get_name
+        # TODO: I don't know what these do yet.
         self.get_commanded_position = mcu_stepper.get_commanded_position
         self.calc_position_from_coord = mcu_stepper.calc_position_from_coord
+        
         # Primary endstop position
         mcu_endstop = self.endstops[0][0]
         if hasattr(mcu_endstop, "get_position_endstop"):
@@ -366,34 +443,90 @@ class PrinterRail:
         return homing_info
     def get_steppers(self):
         return list(self.steppers)
+    
     def get_endstops(self):
+        # NOTE: as commented below, endstops in this list are 
+        #       likely instances of the MCU_endstop class.
         return list(self.endstops)
+    
     def add_extra_stepper(self, config):
+        # NOTE: use the PrinterStepper function to instantiate
+        #       a new MCU_stepper class, then register it in several modules,
+        #       and return it here.
         stepper = PrinterStepper(config, self.stepper_units_in_radians)
         self.steppers.append(stepper)
+
+        # NOTE: Check if self.endstops has been populated, 
+        #       initially its empty "[]".
+        #       If and endstop has been added,
+        #       and no 'endstop_pin' was defined in the config,
+        #       then "use the primary endstop".
         if self.endstops and config.get('endstop_pin', None) is None:
             # No endstop defined - use primary endstop
             self.endstops[0][0].add_stepper(stepper)
             return
+        
         endstop_pin = config.get('endstop_pin')
         printer = config.get_printer()
+
+        # NOTE: Get object from pins.py
         ppins = printer.lookup_object('pins')
-        pin_params = ppins.parse_pin(endstop_pin, True, True)
+
+        # NOTE: calls a PrinterPins method from pins.py,
+        #       which does "Pin to chip mapping".
+        #       It returns a dict with some properties.
+        pin_params = ppins.parse_pin(endstop_pin,
+                                     can_invert=True,
+                                     can_pullup=True)
+        
         # Normalize pin name
         pin_name = "%s:%s" % (pin_params['chip_name'], pin_params['pin'])
-        # Look for already-registered endstop
+        
+        
+        # NOTE: get() method from dict:
+        #       "Return the value for key if key is in the dictionary, else default."
+        # NOTE: Though ".get" can take two arguments, and they have names in the docs,
+        #       using the names will produce errors.
         endstop = self.endstop_map.get(pin_name, None)
+        
+        # Look for already-registered endstop
         if endstop is None:
             # New endstop, register it
-            mcu_endstop = ppins.setup_pin('endstop', endstop_pin)
+            
+            # TODO: I don't really get what this does yet.
+            # NOTE: It uses "lookup_pin" which registers an active pin.
+            #       It also calls the "setup_pin" method on a "chip" object. 
+            #       The chip object comes from a call to "register_chip" elsewhere.
+            #       In mcu.py, the MCU class passes itself to this method. 
+            #       So... the chips may be MCUs.
+            # NOTE: as commented in pins.py (L136), mcu_endstop declared
+            #       here is likely an instance of the MCU_endstop class
+            #       in "mcu.py".
+            mcu_endstop = ppins.setup_pin(pin_type='endstop', pin_desc=endstop_pin)
+            
+            # NOTE: I don't really get what this does yet.
+            #       Add the endstop to the "endstop_map" class dict.
             self.endstop_map[pin_name] = {'endstop': mcu_endstop,
                                           'invert': pin_params['invert'],
                                           'pullup': pin_params['pullup']}
+            
+            # TODO: I don't really get what this does yet.
+            # NOTE: Add the endstop to the "endstops" class list.
+            #       As commented above, mcu_endstop is likely
+            #       an instance of the MCU_endstop class, as
+            #       defined in "mcu.py".
             name = stepper.get_name(short=True)
             self.endstops.append((mcu_endstop, name))
+            
+            # Load the "query_endstops" module.
             query_endstops = printer.load_object(config, 'query_endstops')
+            # Register the endstop there.
             query_endstops.register_endstop(mcu_endstop, name)
         else:
+            # endstop already registered
+            # NOTE: check if the invert or pull-up pins were
+            #       configured differently, and raise an error
+            #       if they are.
             mcu_endstop = endstop['endstop']
             changed_invert = pin_params['invert'] != endstop['invert']
             changed_pullup = pin_params['pullup'] != endstop['pullup']
@@ -401,7 +534,13 @@ class PrinterRail:
                 raise error("Pinter rail %s shared endstop pin %s "
                             "must specify the same pullup/invert settings" % (
                                 self.get_name(), pin_name))
+        # NOTE: call the "add_stepper" method from the
+        #       MCU_endstop class, which in turn calls
+        #       the "trsync.add_stepper" method from the
+        #       MCU_trsync class, which simply appends
+        #       "stepper" object to a list of steppers.
         mcu_endstop.add_stepper(stepper)
+    
     def setup_itersolve(self, alloc_func, *params):
         for stepper in self.steppers:
             stepper.setup_itersolve(alloc_func, *params)
@@ -413,11 +552,12 @@ class PrinterRail:
             stepper.set_trapq(trapq)
     def set_position(self, coord):
         for stepper in self.steppers:
+            # NOTE: calls "MCU_stepper.set_position".
             stepper.set_position(coord)
 
 # Wrapper for dual stepper motor support
 def LookupMultiRail(config, need_position_minmax=True,
-                 default_position_endstop=None, units_in_radians=False):
+                    default_position_endstop=None, units_in_radians=False):
     rail = PrinterRail(config, need_position_minmax,
                        default_position_endstop, units_in_radians)
     for i in range(1, 99):

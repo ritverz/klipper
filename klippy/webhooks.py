@@ -4,7 +4,7 @@
 #
 # This file may be distributed under the terms of the GNU GPLv3 license
 import logging, socket, os, sys, errno, json, collections
-import gcode
+import gcode, klippy
 
 REQUEST_LOG_SIZE = 20
 
@@ -27,13 +27,25 @@ if sys.version_info.major < 3:
         return data
 
 class WebRequestError(gcode.CommandError):
+    # NOTE: "gcode.CommandError" inherits from "Exception",
+    #       which means that this does as well.
+    
     def __init__(self, message,):
+        # This runs the "__init__" function from "Exception"
+        # on the "WebRequestError" instance object (self).
         Exception.__init__(self, message)
 
     def to_dict(self):
-        return {
-            'error': 'WebRequestError',
-            'message': str(self)}
+        return {'error': 'WebRequestError',
+                # NOTE: It appears that this receives the "message"
+                #       passed when the exception was raised.
+                'message': str(self),
+                # NOTE: "args[0]" contains the Exception's message object,
+                #       perhaps because this is the first "arg" it was passed.
+                # NOTE: Adding the following was unhelpful, the whole dict is
+                #       converted to "str" elsewhere.
+                'message_object': self.args[0]
+        }
 
 class Sentinel:
     pass
@@ -82,6 +94,8 @@ class WebRequest:
 
     def set_error(self, error):
         self.is_error = True
+        # NOTE: "to_dict" is a method from "WebRequestError" and
+        #       returns a dictionary.
         self.response = error.to_dict()
 
     def send(self, data):
@@ -102,7 +116,7 @@ class WebRequest:
         return {"id": self.id, rtype: self.response}
 
 class ServerSocket:
-    def __init__(self, webhooks, printer):
+    def __init__(self, webhooks, printer: klippy.Printer):
         self.printer = printer
         self.webhooks = webhooks
         self.reactor = printer.get_reactor()
@@ -256,6 +270,21 @@ class ClientConnection:
             func(web_request)
         except self.printer.command_error as e:
             web_request.set_error(WebRequestError(str(e)))
+            # TODO: Get the "unknown command" error through as a dict, for now it arrives as a string:
+            #       'message': '{\'error\': \'WebRequestError\', \'message\': \'Unknown command:"P200"\'}'
+            # NOTE: The error is raised and the exception message converted
+            #       to a string, which is passed to initialize "WebRequestError",
+            #       and then to Exception.__init__ internally (what is that?).
+            #           def set_error(self, error):
+            #               self.is_error = True
+            #               self.response = error.to_dict()
+            # NOTE: As shown just above, the "set_error" method from "web_request" then 
+            #       calls "to_dict" on the "WebRequestError", which in turn returns the 
+            #       following. Note the "str(self)" in the "message" key.
+            #           def to_dict(self):
+            #               return {
+            #                   'error': 'WebRequestError',
+            #                   'message': str(self)}
         except Exception as e:
             msg = ("Internal Error on WebRequest: %s"
                    % (web_request.get_method()))
@@ -265,11 +294,21 @@ class ClientConnection:
         result = web_request.finish()
         if result is None:
             return
+        # NOTE: Up to now, the error dict is not serialized,
+        #       and it isnt broken either by "send" below.
+        #       It is likely that Moonraker breaks the object.
+        # logging.info(f"Sending data to socket: data={result}")
         self.send(result)
 
     def send(self, data):
-        jmsg = json.dumps(data, separators=(',', ':'))
-        self.send_buffer += jmsg.encode() + b"\x03"
+        try:
+            jmsg = json.dumps(data, separators=(',', ':'))
+            self.send_buffer += jmsg.encode() + b"\x03"
+        except (TypeError, ValueError) as e:
+            msg = ("json encoding error: %s" % (str(e),))
+            logging.exception(msg)
+            self.printer.invoke_shutdown(msg)
+            return
         if not self.is_blocking:
             self._do_send()
 
@@ -295,7 +334,7 @@ class ClientConnection:
         self.send_buffer = self.send_buffer[sent:]
 
 class WebHooks:
-    def __init__(self, printer):
+    def __init__(self, printer: klippy.Printer):
         self.printer = printer
         self._endpoints = {"list_endpoints": self._handle_list_endpoints}
         self._remote_methods = {}
@@ -404,14 +443,14 @@ class WebHooks:
         self._remote_methods[method] = valid_conns
 
 class GCodeHelper:
-    def __init__(self, printer):
+    def __init__(self, printer: klippy.Printer):
         self.printer = printer
-        self.gcode = printer.lookup_object("gcode")
+        self.gcode: gcode.GCodeDispatch = printer.lookup_object("gcode")
         # Output subscription tracking
         self.is_output_registered = False
         self.clients = {}
         # Register webhooks
-        wh = printer.lookup_object('webhooks')
+        wh: WebHooks = printer.lookup_object('webhooks')
         wh.register_endpoint("gcode/help", self._handle_help)
         wh.register_endpoint("gcode/script", self._handle_script)
         wh.register_endpoint("gcode/restart", self._handle_restart)
@@ -422,7 +461,9 @@ class GCodeHelper:
     def _handle_help(self, web_request):
         web_request.send(self.gcode.get_command_help())
     def _handle_script(self, web_request):
-        self.gcode.run_script(web_request.get_str('script'))
+        cmd = web_request.get_str('script')
+        logging.info(f"GCodeHelper sending cmd={cmd} to 'GCodeDispatch.run_script'.")
+        self.gcode.run_script(cmd)
     def _handle_restart(self, web_request):
         self.gcode.run_script('restart')
     def _handle_firmware_restart(self, web_request):
@@ -446,7 +487,7 @@ class GCodeHelper:
 SUBSCRIPTION_REFRESH_TIME = .25
 
 class QueryStatusHelper:
-    def __init__(self, printer):
+    def __init__(self, printer: klippy.Printer):
         self.printer = printer
         self.clients = {}
         self.pending_queries = []
@@ -537,7 +578,7 @@ class QueryStatusHelper:
     def _handle_subscribe(self, web_request):
         self._handle_query(web_request, is_subscribe=True)
 
-def add_early_printer_objects(printer):
+def add_early_printer_objects(printer: klippy.Printer):
     printer.add_object('webhooks', WebHooks(printer))
     GCodeHelper(printer)
     QueryStatusHelper(printer)

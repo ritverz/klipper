@@ -15,17 +15,25 @@ STALL_TIME = 0.100
 # Calculate a move's accel_t, cruise_t, and cruise_v
 def calc_move_time(dist, speed, accel):
     axis_r = 1.
+    
     if dist < 0.:
         axis_r = -1.
         dist = -dist
+    
     if not accel or not dist:
         return axis_r, 0., dist / speed, speed
+    
     max_cruise_v2 = dist * accel
+    
     if max_cruise_v2 < speed**2:
         speed = math.sqrt(max_cruise_v2)
+    
     accel_t = speed / accel
+    
     accel_decel_d = accel_t * speed
+    
     cruise_t = (dist - accel_decel_d) / speed
+    
     return axis_r, accel_t, cruise_t, speed
 
 class ForceMove:
@@ -126,11 +134,63 @@ class ForceMove:
         toolhead = self.printer.lookup_object('toolhead')
         toolhead.get_last_move_time()
         curpos = toolhead.get_position()
-        x = gcmd.get_float('X', curpos[0])
-        y = gcmd.get_float('Y', curpos[1])
-        z = gcmd.get_float('Z', curpos[2])
-        logging.info("SET_KINEMATIC_POSITION pos=%.3f,%.3f,%.3f", x, y, z)
-        toolhead.set_position([x, y, z, curpos[3]], homing_axes=(0, 1, 2))
+
+        # Iterate over the names and indices of the axes in the main toolhead.
+        homing_axes = []
+        for axis_idx, axis_name in enumerate(toolhead.axis_names + "E"):
+            # Try to find a value.
+            value = gcmd.get_float(axis_name, None)
+            # If found, then the axis can be considered homed.
+            if value is not None:
+                homing_axes.append(axis_idx)
+                curpos[axis_idx] = value
+            # If not found, then the position remains the same.
+        # Set the position. Those axes in the homing_axes list will
+        # be set as "homed" by downstream methods (specially kinematics).
+        toolhead.set_position(curpos, homing_axes=tuple(homing_axes))
+
+        # Set position on extra toolheads
+        for th_name in list(toolhead.extra_toolheads):
+            th = toolhead.extra_toolheads[th_name]
+            th.get_last_move_time()
+            curpos = th.get_position()
+            logging.info(f"SET_KINEMATIC_POSITION: setting position on th_name={th_name} with curpos={curpos} scanning axis_names={th.axis_names}")
+            for axis_idx, axis_name in enumerate(th.axis_names + "E"):
+                value = gcmd.get_float(axis_name, curpos[axis_idx])
+                curpos[axis_idx] = value
+            logging.info(f"SET_KINEMATIC_POSITION: setting position on th_name={th_name} with final curpos={curpos}")
+            th.set_position(curpos, 
+                            # Use a tuple with n+1, to include the extruder just in case.
+                            homing_axes=tuple(range(th.axis_count + 1)))
+
+        # TODO: remove old stuff.
+        # x = gcmd.get_float('X', curpos[0])
+        # y = gcmd.get_float('Y', curpos[1])
+        # z = gcmd.get_float('Z', curpos[2])
+        # e = gcmd.get_float('E', curpos[toolhead.axis_count])
+        
+        # logging.info("SET_KINEMATIC_POSITION: got pos=%.3f,%.3f,%.3f,%.3f", x, y, z, e)
+        # # NOTE: The "homing_axes" argument is used to
+        # #       set axis limits by the (cartesian) kinematics.
+        # #       Passing "3" for the extruder is not needed for now,
+        # #       and would proably fail.
+        # toolhead.set_position([x, y, z, e], homing_axes=(0, 1, 2))
+        
+        # TODO: Improve. This is a very crude/hardcoded implementation.
+        # if toolhead.axis_count >= 6:
+        #     if toolhead.axis_names[3:6] == "ABC":
+        #         a = gcmd.get_float('A', curpos[3])
+        #         b = gcmd.get_float('B', curpos[4])
+        #         c = gcmd.get_float('C', curpos[5])
+        #         logging.info("SET_KINEMATIC_POSITION pos=%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f", x, y, z, a, b, c, e)
+        #         toolhead.set_position([x, y, z, a, b, c, e], homing_axes=(0, 1, 2, 3, 4, 5, 6))
+        # elif toolhead.axis_names == "XYZ":
+        #     logging.info("SET_KINEMATIC_POSITION pos=%.3f,%.3f,%.3f,%.3f", x, y, z, e)
+        #     # NOTE: The "homing_axes" argument is used to
+        #     #       set axis limits by the (cartesian) kinematics.
+        #     #       Passing "3" for the extruder is not needed for now,
+        #     #       and would proably fail.
+        #     toolhead.set_position([x, y, z, e], homing_axes=(0, 1, 2, 3))
 
 def load_config(config):
     return ForceMove(config)

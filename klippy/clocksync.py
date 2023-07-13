@@ -5,6 +5,18 @@
 # This file may be distributed under the terms of the GNU GPLv3 license.
 import logging, math
 
+""" Notes on 'Multiple micro-controllers': https://www.klipper3d.org/Code_Overview.html#time
+
+The host software supports using multiple micro-controllers on a single printer. 
+
+In this case, the "MCU clock" of each micro-controller is tracked separately. 
+
+The clocksync.py code handles clock drift between micro-controllers by modifying 
+the way it converts from "print time" to "MCU clock". On secondary mcus, the mcu 
+frequency that is used in this conversion is regularly updated to account for 
+measured drift.
+"""
+
 RTT_AGE = .000010 / (60. * 60.)
 DECAY = 1. / 30.
 TRANSMIT_EXTRA = .001
@@ -134,6 +146,16 @@ class ClockSync:
         sample_time, clock, freq = self.clock_est
         return float(reqclock - clock)/freq + sample_time
     def estimated_print_time(self, eventtime):
+        # NOTE: Probably estimates an MCU time equivalent that corresponds
+        #       to a certain (monotonic) system time.
+        # NOTE: Example: this receives "curtime" from "toolhead._calc_print_time",
+        #       which is actually the system "reactor.monotonic()" clock in seconds.
+        #       First, this monotonic time is converted to MCU clock ticks
+        #       and added to the estimated MCU clock by "get_clock". Why so?
+        #       The clock ticks are then converted to seconds by
+        #       "clock_to_print_time".
+        #       This quantity is returned and used by "toolhead._calc_print_time"
+        #       to update its "print_time".
         return self.clock_to_print_time(self.get_clock(eventtime))
     # misc commands
     def clock32_to_clock64(self, clock32):

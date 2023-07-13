@@ -5,8 +5,10 @@
 # This file may be distributed under the terms of the GNU GPLv3 license.
 
 class NoneKinematics:
-    def __init__(self, toolhead, config):
+    def __init__(self, toolhead, config, trapq):
         self.axes_minmax = toolhead.Coord(0., 0., 0., 0.)
+        self.axis = [None, None, None]
+        self.trapq = trapq
     def get_steppers(self):
         return []
     def calc_position(self, stepper_positions):
@@ -24,5 +26,5 @@ class NoneKinematics:
             'axis_maximum': self.axes_minmax,
         }
 
-def load_kinematics(toolhead, config):
-    return NoneKinematics(toolhead, config)
+def load_kinematics(toolhead, config, trapq):
+    return NoneKinematics(toolhead, config, trapq)
