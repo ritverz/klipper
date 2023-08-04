@@ -198,4 +198,3 @@ class CartKinematics:
 
 def load_kinematics(toolhead, config, trapq=None):
     return CartKinematics(toolhead, config, trapq)
-
