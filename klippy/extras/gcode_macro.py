@@ -5,6 +5,7 @@
 # This file may be distributed under the terms of the GNU GPLv3 license.
 import traceback, logging, ast, copy, json
 import jinja2
+import time
 
 
 ######################################################################
@@ -184,6 +185,7 @@ class GCodeMacro:
         kwparams.update(self.template.create_template_context())
         kwparams['params'] = gcmd.get_command_parameters()
         kwparams['rawparams'] = gcmd.get_raw_command_parameters()
+        kwparams['unixtime'] = time.time()
         self.in_script = True
         try:
             self.template.run_gcode_from_command(kwparams)
