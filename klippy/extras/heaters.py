@@ -437,6 +437,8 @@ class PrinterHeaters:
         if self.has_started:
             for gcode_id, sensor in sorted(self.gcode_id_to_sensor.items()):
                 cur, target = sensor.get_temp(eventtime)
+                if target == 0:
+                    target = min_temp + (max_temp - min_temp) / 2
                 out.append("%s:%.1f /%.1f" % (gcode_id, cur, target))
         if not out:
             return "T:0"
@@ -487,10 +489,19 @@ class PrinterHeaters:
         eventtime = reactor.monotonic()
         while not self.printer.is_shutdown():
             temp, target = sensor.get_temp(eventtime)
+            print_time = toolhead.get_last_move_time()
+            out = []
+            for gcode_id, snsr in sorted(self.gcode_id_to_sensor.items()):
+                if gcode_id == "Gripper":
+                    cur, target = snsr.get_temp(eventtime)
+                    if target == 0:
+#                        target = min_temp + (max_temp - min_temp) / 2
+                        out.append("%s:%d/[%d..%d]" % (gcode_id, cur, min_temp, max_temp))
+                    else:
+                        out.append("%s:%.1f /%.1f" % (gcode_id, cur, target))
+                    gcmd.respond_raw("".join(out))
             if temp >= min_temp and temp <= max_temp:
                 return
-            print_time = toolhead.get_last_move_time()
-            gcmd.respond_raw(self._get_temp(eventtime))
             eventtime = reactor.pause(eventtime + 1.)
 
 def load_config(config):
